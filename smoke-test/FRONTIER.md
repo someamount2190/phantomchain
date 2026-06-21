@@ -127,6 +127,29 @@ needs significant infra and, in places, the Tier-3 research primitives.
 
 ---
 
+## Scale caveat (read alongside every "✅ DONE + LIVE + VERIFIED" below)
+"Verified" here means **verified at the scale it was run** — the public testnet is **N=4 validators**, and
+local nets are small. Several mechanisms are *deliberately inert at that scale* and therefore exercised only
+by unit tests, not the live net: the **10% weight cap** and **committee sortition** are provably inert below
+`CAP_MIN_VALIDATORS=10`, and the per-cluster paths need a multi-device cluster. Read the status flags as
+"correct + integration-tested small; not yet proven at production validator counts," not as a maturity claim.
+
+Two structural items are **engineering frontiers, not done**, and are not stubbed to look finished:
+- **True mTLS** — the dual-purpose TLS port (open wallet RPC + node-to-node) means real client-cert auth
+  needs a port/context split, not a flag (see ARCHITECTURE §8). Today: app-layer ML-DSA auth + op-token.
+- **Threshold ML-DSA / DKG** — no production library exists (2026); the QC and cluster/bridge "M-of-N" are
+  signature *bundles*, and the bridge custodian + cluster key are assembled in one process in the demos.
+
+## Authenticated account proofs (added)
+The flat `stateRoot()` proves the *whole* state but cannot prove a *single* account to a light client.
+Accounts now also carry a SHA3 binary **Merkle commitment** (`accountsMerkleRoot`) with verifiable
+inclusion proofs (`accountProof`/`verifyAccountProof`, served by `/stateproof`, unit-tested in
+`node/MerkleProofTest.java` 12/12: inclusion, tamper/forged-balance/wrong-root rejection, odd-leaf paths,
+determinism). Under `srVersion="m1"` this root is bound into the consensus `stateRoot`, so proofs are
+trustless; under the default `"full"` (what the live testnet runs) it is an auxiliary endpoint and the
+state root is byte-identical to prior builds. The serialization version is committed chain state, removing
+the previous `-Dpc.srcompat` launch-flag fork risk.
+
 ## Summary
 The **monetary + consensus + identity core is built, hardened, and live**: a post-quantum PoS-BFT chain
 with chainId-bound signing, BFT quorum, state-root commitment, decaying emission, fees, staking,

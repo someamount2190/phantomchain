@@ -170,12 +170,25 @@ proposer-legitimacy check + state-root agreement.
 | Post-quantum signing (ML-DSA-65), no ECDSA/RSA | ✅ |
 | Cross-chain/replay resistance (chainId domain separation) | ✅ |
 | BFT safety (no conflicting commits) | ✅ under honest quorum |
-| State integrity (app-hash) | ✅ |
+| State integrity (app-hash) | ✅ full-state hash; every node agrees on `stateRoot()` per block |
+| Light-client account proof (Merkle inclusion) | ✅ `accountProof`/`verifyAccountProof` + `/stateproof`; consensus-bound under `srVersion="m1"` |
 | Self-custody + key rotation + guardian recovery | ✅ |
 | Sybil resistance / one-person-one-identity | 🟡 soft (social vouch; OPEN-ID-01) |
 | Threshold signature / aggregate QC | 🟡 multisig (no PQ threshold lib) |
 | Unbiasable leader election | ✅ commit-reveal RANDAO beacon (residual: 1-bit last-revealer bias) |
 | Transport peer-auth | ✅ mTLS on the peer port + open server-auth read port (`readPort`); `MtlsTest` 4/4 + `ReadPeerSplitTest` 6/6 |
+
+### 8.1 State-root serialization version (`srVersion`)
+The state root is consensus-critical, so the exact field serialization must be identical on every node.
+That version is **committed chain state** (`srVersion`, set at genesis and carried in every snapshot) — not
+a JVM launch flag. A node can no longer silently fork by being started without the right `-D` property.
+- `"full"` (default, and what the live testnet runs) — the complete serialization; **byte-identical to the
+  pre-this-build state root**, so existing chains are unaffected.
+- `"v1"/"v2"` — historical shorter tails (pre-`identityBond`, pre-`committeeSize`), kept for replaying old chains.
+- `"m1"` — additionally binds the authenticated **account Merkle root** into the state root, making
+  `/stateproof` inclusion proofs trustless (verifiable against the QC-committed root) instead of
+  trust-the-serving-node. Opt-in per chain; empty for `"full"`, so it changes nothing for legacy chains.
+  `/stateproof` is on the open read-endpoint allowlist, so light clients reach it without a peer cert.
 
 ---
 
@@ -209,7 +222,7 @@ the last `RETAIN_RECENT` bodies fully; for older blocks each validator stores on
 bodies are **pruned** (drop `txs`, keep header). Reconstruction is verified + transparent: `/body?h=` is a
 leaf; `/block?h=` reconstructs from the `R` holders and **verifies fetched txs against the committed (QC'd)
 block hash** before returning, so sync keeps working and reconstruction is trustless. Pruning never touches
-consensus inputs (randBeacon/proposer/epoch read header only) or state/shard roots. This is
+consensus inputs (beacon/proposer/epoch read header only) or state/shard roots. This is
 **replication-assigned ledger sharding**; the **RS(k,n) upgrade** (store an RS shard not whole-body
 replicas; `n/k` overhead vs `R×`) is a drop-in replacement for the store/reconstruct step (needs a GF(256)
 codec) — documented frontier. Stateless-witness STATE sharding (validators not holding full current state)

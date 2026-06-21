@@ -56,6 +56,12 @@ public class Ledger {
     int minValidatorStake = 500_000;                              // min bonded stake to join the validator set (governable)
     long identityBond = 0;                                        // stake an identity must lock to be admitted to `verified` (governable; 0 = vouch-only). Sybil-cost: N identities cost N×bond.
     int committeeSize = 0;                                        // 0 = full validator set signs (deterministic BFT); >0 = beacon-sortitioned signing committee of this size (probabilistic safety, only meaningful at large N)
+    // State-root serialization version. Travels WITH the chain (set at genesis, persisted in the snapshot)
+    // instead of a JVM launch flag, so a node can never silently fork by being started without the right
+    // flag. "v1"/"v2" describe historical (shorter) tails; "full" (default) is the current complete
+    // serialization; "m1" additionally binds the authenticated account Merkle root into the state root
+    // (opt-in: makes light-client account proofs trustless without changing existing chains).
+    String srVersion = "full";
     long totalMinted = 0;
     long burned = 0;                          // total tokens burned (fee burn + slashing) — deflationary sink
     static final int EPOCH_LEN = 3;
@@ -231,6 +237,7 @@ public class Ledger {
         JSONObject root = new JSONObject();
         root.put("owner", ownerId == null ? JSONObject.NULL : ownerId);
         root.put("chainId", chainId);
+        root.put("srVersion", srVersion);   // state-root serialization version travels with the chain (no launch flag)
         JSONObject accs = new JSONObject();
         for (Map.Entry<String, Account> e : accounts.entrySet())
             accs.put(e.getKey(), new JSONObject().put("balance", e.getValue().balance).put("nonce", e.getValue().nonce));
@@ -297,6 +304,7 @@ public class Ledger {
         JSONObject root = new JSONObject(s);
         ownerId = root.isNull("owner") ? null : root.getString("owner");
         chainId = root.optString("chainId", "");
+        srVersion = root.optString("srVersion", "full");   // legacy snapshots without the field == "full"
         accounts.clear(); chain.clear(); mempool.clear();
         JSONObject accs = root.getJSONObject("accounts");
         for (Iterator<String> it = accs.keys(); it.hasNext(); ) {
@@ -1061,11 +1069,11 @@ public class Ledger {
         sb.append("supply|").append(totalMinted).append('|').append(burned);
         sb.append("|params|").append(blockReward).append(',').append(halvingBlocks).append(',').append(maxSupply)
           .append(',').append(feeBurnBps).append(',').append(slashBps).append(',').append(jailBlocks).append(',').append(unbondingBlocks).append(',').append(estateInactivity).append(',').append(minValidatorStake);
-        // state-root param tail compatibility: identityBond + committeeSize were appended in later builds;
-        // a node syncing an older chain can match its deployed serialization via -Dpc.srcompat=
-        String srcompat = System.getProperty("pc.srcompat", "full");
-        if (!"v1".equals(srcompat)) sb.append(',').append(identityBond);                 // v1 = pre-identityBond
-        if (!"v1".equals(srcompat) && !"v2".equals(srcompat)) sb.append(',').append(committeeSize);   // v2 = pre-committeeSize
+        // state-root param tail compatibility: identityBond + committeeSize were appended in later builds.
+        // The serialization version is committed state (srVersion, persisted with the chain) — NOT a JVM
+        // launch flag — so every node computes the identical tail without operator coordination.
+        if (!"v1".equals(srVersion)) sb.append(',').append(identityBond);                 // v1 = pre-identityBond
+        if (!"v1".equals(srVersion) && !"v2".equals(srVersion)) sb.append(',').append(committeeSize);   // v2 = pre-committeeSize
         // permanent tombstone (excludes from quorum/weight via excluded()) — consensus-critical, must be covered
         sb.append("|sl|"); java.util.List<String> sll = new ArrayList<>(slashed); java.util.Collections.sort(sll);
         for (String v : sll) sb.append(v).append(';');
@@ -1082,7 +1090,95 @@ public class Ledger {
             JSONObject votes = p.optJSONObject("votes"); if (votes != null) { java.util.List<String> vk = new ArrayList<>(keysOf(votes)); java.util.Collections.sort(vk);
                 for (String act : vk) sb.append(act).append('=').append(votes.optBoolean(act)).append(','); }
             sb.append(';'); }
+        // "m1": commit to the authenticated account Merkle root so a light client can be given a
+        // trustless inclusion proof for any account against the consensus state root (additive — empty
+        // for "full"/legacy chains, so their state root is byte-identical to before this build).
+        if ("m1".equals(srVersion)) sb.append("|amr|").append(accountsMerkleRoot());
         return PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8(sb.toString())));
+    }
+
+    // ===== authenticated account state: a real Merkle commitment with verifiable inclusion proofs =====
+    // Closes the gap that the flat stateRoot() hash, while integrity-complete, cannot PROVE a single
+    // account to a light client. Leaves are the canonical (id,balance,nonce) tuples sorted by id; the
+    // tree is a binary SHA3-256 Merkle tree with domain-separated leaf/interior hashing.
+    static byte[] accountLeaf(String id, long balance, long nonce) {
+        return PhantomCrypto.sha3_256(PhantomCrypto.utf8("acctleaf|" + id + "|" + balance + "|" + nonce));
+    }
+    java.util.List<String> sortedAccountIds() {
+        java.util.List<String> ids = new ArrayList<>(accounts.keySet());
+        java.util.Collections.sort(ids);
+        return ids;
+    }
+    java.util.List<byte[]> accountLeaves() {
+        java.util.List<byte[]> ls = new ArrayList<>();
+        for (String id : sortedAccountIds()) { Account a = accounts.get(id); ls.add(accountLeaf(id, a.balance, a.nonce)); }
+        return ls;
+    }
+    String accountsMerkleRoot() { return PhantomCrypto.hex(merkleRoot(accountLeaves())); }
+
+    /** Interior node = SHA3(0x01 ‖ left ‖ right); the 0x01 prefix domain-separates interior nodes from
+     *  leaves (which are SHA3 of a "acctleaf|"-tagged preimage), preventing second-preimage/leaf-as-node attacks. */
+    static byte[] merkleNode(byte[] l, byte[] r) {
+        byte[] c = new byte[1 + l.length + r.length];
+        c[0] = 0x01;
+        System.arraycopy(l, 0, c, 1, l.length);
+        System.arraycopy(r, 0, c, 1 + l.length, r.length);
+        return PhantomCrypto.sha3_256(c);
+    }
+    static byte[] merkleRoot(java.util.List<byte[]> leaves) {
+        if (leaves.isEmpty()) return PhantomCrypto.sha3_256(PhantomCrypto.utf8("emptymerkle"));
+        java.util.List<byte[]> level = new ArrayList<>(leaves);
+        while (level.size() > 1) {
+            java.util.List<byte[]> next = new ArrayList<>();
+            for (int i = 0; i < level.size(); i += 2)
+                next.add(merkleNode(level.get(i), i + 1 < level.size() ? level.get(i + 1) : level.get(i)));   // odd tail: duplicate last
+            level = next;
+        }
+        return level.get(0);
+    }
+    /** Sibling hashes from leaf to root for the leaf at index `idx`. */
+    static java.util.List<byte[]> merkleProof(java.util.List<byte[]> leaves, int idx) {
+        java.util.List<byte[]> sibs = new ArrayList<>();
+        java.util.List<byte[]> level = new ArrayList<>(leaves);
+        int i = idx;
+        while (level.size() > 1) {
+            int sib = (i % 2 == 0) ? Math.min(i + 1, level.size() - 1) : i - 1;   // last-even sibling = self (matches duplicate)
+            sibs.add(level.get(sib));
+            java.util.List<byte[]> next = new ArrayList<>();
+            for (int j = 0; j < level.size(); j += 2)
+                next.add(merkleNode(level.get(j), j + 1 < level.size() ? level.get(j + 1) : level.get(j)));
+            level = next; i /= 2;
+        }
+        return sibs;
+    }
+    static boolean merkleVerify(byte[] leaf, int idx, java.util.List<byte[]> sibs, byte[] root) {
+        byte[] h = leaf; int i = idx;
+        for (byte[] s : sibs) { h = (i % 2 == 0) ? merkleNode(h, s) : merkleNode(s, h); i /= 2; }
+        return java.util.Arrays.equals(h, root);
+    }
+
+    /** Serializable inclusion proof for `id` against accountsMerkleRoot() (what /stateproof serves). */
+    JSONObject accountProof(String id) {
+        java.util.List<String> ids = sortedAccountIds();
+        int idx = ids.indexOf(id);
+        if (idx < 0) return new JSONObject().put("present", false).put("id", id).put("root", accountsMerkleRoot());
+        java.util.List<byte[]> leaves = accountLeaves();
+        Account a = accounts.get(id);
+        JSONArray sibs = new JSONArray();
+        for (byte[] sx : merkleProof(leaves, idx)) sibs.put(PhantomCrypto.hex(sx));
+        return new JSONObject().put("present", true).put("id", id)
+                .put("balance", a.balance).put("nonce", a.nonce)
+                .put("index", idx).put("count", ids.size())
+                .put("siblings", sibs).put("root", PhantomCrypto.hex(merkleRoot(leaves)));
+    }
+    /** Stateless verification of an account proof (a light client runs exactly this against a trusted root). */
+    static boolean verifyAccountProof(JSONObject p) {
+        if (p == null || !p.optBoolean("present", false)) return false;
+        byte[] leaf = accountLeaf(p.getString("id"), p.getLong("balance"), p.getLong("nonce"));
+        JSONArray sa = p.getJSONArray("siblings");
+        java.util.List<byte[]> sibs = new ArrayList<>();
+        for (int i = 0; i < sa.length(); i++) sibs.add(PhantomCrypto.unhex(sa.getString(i)));
+        return merkleVerify(leaf, p.getInt("index"), sibs, PhantomCrypto.unhex(p.getString("root")));
     }
 
     // ===== state sharding: per-id state partitioned into SHARDS, each independently rooted =====
@@ -1370,22 +1466,6 @@ public class Ledger {
         return w;
     }
 
-    /** RANDAO-style randomness beacon: derived from the previous block's quorum signatures, so no
-     *  single proposer can bias it (the sigs come from the whole quorum, committed on-chain).
-     *  Deterministic across nodes. Library-only (SHA3), PQ-safe. Not a VRF — VRF is on the pipeline. */
-    String randBeacon(int height) {
-        int p = height - 1;
-        if (p < 0 || p >= chain.size()) return ZERO32;
-        JSONObject prev = chain.get(p);
-        JSONArray qc = prev.optJSONArray("qc");
-        StringBuilder sb = new StringBuilder("beacon|");
-        if (qc != null && qc.length() > 0) {
-            for (int k = 0; k < qc.length(); k++) { JSONObject e = qc.optJSONObject(k); if (e != null) sb.append(e.optString("sig")); }
-        } else {
-            sb.append(prev.optString("hash"));
-        }
-        return PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8(sb.toString())));
-    }
 
     /** Verify the proposer's reveal matches the commitment it made in its prior block (RANDAO binding). */
     boolean beaconRevealValid(JSONObject b) {

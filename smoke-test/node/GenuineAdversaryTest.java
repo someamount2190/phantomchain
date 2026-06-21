@@ -97,7 +97,7 @@ public class GenuineAdversaryTest {
     }
 
     interface Mut { void run(); }
-    static void audit(String name, Mut apply, Mut revert) {
+    static void audit(String name, Mut apply, Mut revert) throws Exception {
         String before = L.stateRoot();
         apply.run();
         String after = L.stateRoot();

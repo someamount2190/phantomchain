@@ -21,6 +21,10 @@ same class the Android app embeds). `NetNode` drives consensus but never mutates
 
 - **Consensus** — BFT-lite with quorum certificates (`N−(N−1)/3`), proposer legitimacy checks, state-root
   agreement, view-change on dead proposers, single-slot deterministic finality.
+- **Authenticated state** — every block commits to a full-state `stateRoot`; accounts additionally carry a
+  SHA3 Merkle commitment with verifiable light-client inclusion proofs (`/stateproof`,
+  `verifyAccountProof`), consensus-bound when a chain runs `srVersion="m1"`. The serialization version is
+  committed chain state, not a launch flag, so nodes can't fork by being misconfigured.
 - **Leader election** — commit-reveal RANDAO beacon (un-grindable; adversarially tested).
 - **Identity ≠ key** — durable identities with rotatable device keys, root-authorized rotation, and
   M-of-N guardian recovery; plus estate/inheritance.

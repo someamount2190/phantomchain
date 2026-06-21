@@ -71,7 +71,7 @@ public class NetNode extends NanoHTTPD {
     /** Endpoints served on the OPEN read port (server-auth TLS, no client cert) — read-only, no state
      *  mutation. Everything else (writes, consensus, gossip) lives on the mTLS peer port (rpcPort). */
     static final Set<String> READ_ENDPOINTS = new HashSet<>(java.util.Arrays.asList(
-            "/status", "/econ", "/identity", "/head", "/account", "/shard", "/extaddr", "/bridge/outs",
+            "/status", "/econ", "/identity", "/head", "/account", "/stateproof", "/shard", "/extaddr", "/bridge/outs",
             "/oracle", "/identity-info", "/body", "/rsshard", "/block", "/peers", "/genesis", "/gov"));
     int readPort;                          // open read port (rpcPort + 1 by default)
     fi.iki.elonen.NanoHTTPD readServer;   // the open-read server (server-auth TLS, NO client cert)
@@ -431,6 +431,13 @@ public class NetNode extends NanoHTTPD {
                     String aid = param(s, "id"); if (aid == null) return resp("need id=");
                     return resp(new JSONObject().put("id", aid).put("balance", ledger.balanceOf(aid))
                             .put("nonce", ledger.projectedNonce(aid)).put("cid", ledger.chainId).toString());
+                }
+                case "/stateproof": synchronized (ledger) {   // authenticated account inclusion proof (Merkle) — verifiable by a light client
+                    String aid = param(s, "id"); if (aid == null) return resp("need id=");
+                    JSONObject pr = ledger.accountProof(aid);
+                    pr.put("accountsRoot", ledger.accountsMerkleRoot());   // == pr.root; light clients trust it via stateRoot when srVersion=m1
+                    pr.put("verified", Ledger.verifyAccountProof(pr));     // self-check the served proof
+                    return resp(pr.toString());
                 }
                 case "/shard": synchronized (ledger) {
                     String ss = param(s, "s"); if (ss == null) return resp("need s=<shard 0.." + (Ledger.SHARDS - 1) + ">");

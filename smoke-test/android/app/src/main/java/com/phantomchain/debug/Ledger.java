@@ -45,6 +45,7 @@ public class Ledger {
     // DIRECTLY to each member identity (no operator intermediary, §9.6). Threshold-Dilithium aggregation
     // is the research primitive that would compress the bundle to one sig; this is the honest M-of-N interim.
     final Map<String, JSONObject> clusters = new HashMap<>();      // clusterId -> {members:[id...], memberPubs:{id->pubHex}, threshold:M}
+    final java.util.Set<String> collapsed = new java.util.HashSet<>();   // clusters disbanded (§9.7): excluded from consensus, members freed to reform
     // ---- cross-chain bridge (on-chain side; the M-of-N custodian HSM service is the explicit OFF-chain trust boundary) ----
     final Map<String, String> custodians = new HashMap<>();        // custodian id -> pubkey hex
     int bridgeThreshold = 1;                                       // M-of-N custodian attestations required (governable)
@@ -121,7 +122,7 @@ public class Ledger {
     static final java.util.Set<String> SPECIAL = new java.util.HashSet<>(java.util.Arrays.asList(
             "GENESIS", "SLASH", "VOUCH", "BOND", "UNBOND", "UNJAIL", "PROPOSE", "VOTE",
             "REGISTER", "ROTATE", "SETGUARDIANS", "RECOVER", "SETBENEFICIARY", "CLAIM", "VALJOIN",
-            "CLUSTERFORM", "BRIDGE_OUT", "BRIDGE_IN", "ORACLE"));
+            "CLUSTERFORM", "CLUSTERDISBAND", "BRIDGE_OUT", "BRIDGE_IN", "ORACLE"));
     static boolean isTransfer(JSONObject tx) { return !SPECIAL.contains(tx.optString("from")); }
 
     /** Stable tx id for dedup/mempool removal: the signature if present, else a hash of the tx body
@@ -279,6 +280,8 @@ public class Ledger {
         root.put("custodians", cu);
         JSONObject cls = new JSONObject(); for (Map.Entry<String, JSONObject> e : clusters.entrySet()) cls.put(e.getKey(), e.getValue());
         root.put("clusters", cls);
+        JSONArray clp = new JSONArray(); for (String x : collapsed) clp.put(x);
+        root.put("collapsed", clp);
         JSONArray bp = new JSONArray(); for (String x : bridgeProcessed) bp.put(x);
         root.put("bridgeProcessed", bp);
         JSONObject orc = new JSONObject();
@@ -356,6 +359,8 @@ public class Ledger {
         if (tr != null) for (String k : keysOf(tr)) tiers.put(k, tr.getString(k));
         clusters.clear(); JSONObject cls = root.optJSONObject("clusters");
         if (cls != null) for (String k : keysOf(cls)) clusters.put(k, cls.getJSONObject(k));
+        collapsed.clear(); JSONArray clp = root.optJSONArray("collapsed");
+        if (clp != null) for (int i = 0; i < clp.length(); i++) collapsed.add(clp.getString(i));
         custodians.clear(); JSONObject cu = root.optJSONObject("custodians");
         if (cu != null) for (String k : keysOf(cu)) custodians.put(k, cu.getString(k));
         bridgeProcessed.clear(); JSONArray bp = root.optJSONArray("bridgeProcessed");
@@ -537,6 +542,9 @@ public class Ledger {
                     break;
                 }
                 case "CLUSTERFORM": applyClusterForm(tx); break;   // a bonded cluster of M-of-N members joins the validator set as ONE validator
+                case "CLUSTERDISBAND":   // the cluster's own members (>=threshold) collapse it (§9.7): excluded from consensus, members freed
+                    if (verifyClusterDisband(tx)) collapsed.add(tx.getString("clusterId"));
+                    break;
                 case "BRIDGE_OUT":   // locked amount already moved to reserve via projection
                     blockFees += tx.optLong("fee", 0);
                     bridgeOuts.add(new JSONObject().put("actor", tx.getString("actor")).put("chain", tx.getString("chain"))
@@ -874,6 +882,26 @@ public class Ledger {
         return true;
     }
 
+    static String clusterDisbandCanon(String cid, String clusterId) { return "clusterdisband|" + cid + "|" + clusterId; }
+
+    /** Collapse (§9.7) is authorized by the cluster's OWN members: >= threshold distinct member signatures
+     *  over the disband string. Idempotent; only a registered, not-already-collapsed cluster can disband. */
+    boolean verifyClusterDisband(JSONObject tx) throws Exception {
+        if (!chainId.equals(tx.optString("cid", ""))) return false;
+        String clusterId = tx.getString("clusterId");
+        JSONObject c = clusters.get(clusterId); if (c == null || collapsed.contains(clusterId)) return false;
+        return verifyClusterVote(clusterId, clusterDisbandCanon(chainId, clusterId), tx.optJSONArray("approvals"));
+    }
+
+    JSONObject buildClusterDisbandTx(String clusterId, java.util.List<MLDSAPrivateKeyParameters> memberKeys) throws Exception {
+        String canon = clusterDisbandCanon(chainId, clusterId);
+        JSONArray approvals = new JSONArray();
+        for (MLDSAPrivateKeyParameters mk : memberKeys)
+            approvals.put(new JSONObject().put("m", idOf(PhantomCrypto.hex(mk.getPublicKeyParameters().getEncoded())))
+                    .put("sig", PhantomCrypto.hex(PhantomCrypto.sign(mk, PhantomCrypto.utf8(canon)))));
+        return new JSONObject().put("from", "CLUSTERDISBAND").put("clusterId", clusterId).put("cid", chainId).put("approvals", approvals);
+    }
+
     /** A cluster's consensus signature on a block is a bundle [{m:memberId, sig}]; valid iff >= threshold
      *  DISTINCT member keys signed the block hash. This is the M-of-N stand-in for a threshold signature. */
     boolean verifyClusterVote(String clusterId, String hash, JSONArray bundle) throws Exception {
@@ -1012,6 +1040,10 @@ public class Ledger {
             for (String k : cll) { JSONObject c = clusters.get(k);
                 sb.append(k).append('=').append(c.getJSONArray("members").toString()).append(':').append(c.getInt("threshold")).append(';'); }
         }
+        if (!collapsed.isEmpty()) {   // disbanded clusters (§9.7) — consensus-critical (excluded), backward-compatible when empty
+            sb.append("clp|"); java.util.List<String> clpl = new ArrayList<>(collapsed); java.util.Collections.sort(clpl);
+            for (String v : clpl) sb.append(v).append(';');
+        }
         sb.append("bth|").append(bridgeThreshold).append("|bp|");
         java.util.List<String> bpl = new ArrayList<>(bridgeProcessed); java.util.Collections.sort(bpl);
         for (String v : bpl) sb.append(v).append(';');
@@ -1116,7 +1148,7 @@ public class Ledger {
     /** Apply a validated tx's balance/nonce deltas to a projection map (no validation here). */
     void applyProj(JSONObject tx, Map<String, long[]> m) throws Exception {
         String t = tx.optString("from");
-        if ("GENESIS".equals(t) || "SLASH".equals(t) || "VOUCH".equals(t) || "CLAIM".equals(t) || "VALJOIN".equals(t) || "CLUSTERFORM".equals(t) || "BRIDGE_IN".equals(t) || "ORACLE".equals(t)
+        if ("GENESIS".equals(t) || "SLASH".equals(t) || "VOUCH".equals(t) || "CLAIM".equals(t) || "VALJOIN".equals(t) || "CLUSTERFORM".equals(t) || "CLUSTERDISBAND".equals(t) || "BRIDGE_IN".equals(t) || "ORACLE".equals(t)
                 || "REGISTER".equals(t) || "ROTATE".equals(t) || "SETGUARDIANS".equals(t) || "RECOVER".equals(t)) return;   // no projection effect (BRIDGE_IN applied at commit)
         if ("BRIDGE_OUT".equals(t)) { long[] fa = proj(tx.getString("actor"), m); fa[0] -= tx.getLong("amount") + tx.optLong("fee", 0); fa[1] += 1; proj(BRIDGE_RESERVE, m)[0] += tx.getLong("amount"); return; }
         if ("BOND".equals(t)) { long[] fa = proj(tx.getString("actor"), m); fa[0] -= tx.getLong("amount"); fa[1] += 1; return; }
@@ -1139,6 +1171,7 @@ public class Ledger {
         if ("CLAIM".equals(t)) return verifyClaim(tx) ? null : "estate not claimable";
         if ("VALJOIN".equals(t)) return verifyValJoin(tx) ? null : "bad valjoin";
         if ("CLUSTERFORM".equals(t)) return verifyClusterForm(tx) ? null : "bad clusterform";
+        if ("CLUSTERDISBAND".equals(t)) return verifyClusterDisband(tx) ? null : "bad clusterdisband";
         if ("BRIDGE_IN".equals(t)) return verifyBridgeIn(tx) ? null : "bad bridge_in";
         if ("ORACLE".equals(t)) return verifyOracle(tx) ? null : "bad oracle";
         if ("BRIDGE_OUT".equals(t)) {   // user locks PHNT to the reserve for external release
@@ -1269,7 +1302,7 @@ public class Ledger {
         jailed.clear(); unbonding.clear(); proposals.clear();
     }
 
-    boolean excluded(String id) { return slashed.contains(id) || jailedActive(id); }   // permanent tombstone OR active jail
+    boolean excluded(String id) { return slashed.contains(id) || jailedActive(id) || collapsed.contains(id); }   // tombstone, active jail, OR disbanded cluster
     java.util.List<Integer> liveIdx() {
         java.util.List<Integer> r = new ArrayList<>();
         for (int i = 0; i < validators.size(); i++) if (!excluded(validators.get(i))) r.add(i);
@@ -1303,12 +1336,38 @@ public class Ledger {
         return Math.min(GEO_MAX, 1.0 + GEO_ALPHA / (density + GEO_BETA));
     }
 
-    /** Final consensus/reward weight = baseWeight × geo coverage multiplier, renormalized over live set. */
+    static final double WEIGHT_CAP = 0.10;            // §9.4: no single (cluster) validator may exceed 10% of network weight
+    static final int CAP_MIN_VALIDATORS = 10;         // below this the cap is infeasible (1/N > cap), so it stays INERT — preserving existing chains exactly
+
+    /** Final consensus/reward weight = baseWeight × geo coverage multiplier, renormalized over live set,
+     *  then (at >= CAP_MIN_VALIDATORS live) the 10% per-validator hard cap (§9.4). */
     double weight(int idx) {
         if (idx < 0 || idx >= validators.size() || excluded(validators.get(idx))) return 0;
+        java.util.List<Integer> live = liveIdx();
         double mine = baseWeight(idx) * coverageMultiplier(idx), total = 0;
-        for (int j : liveIdx()) total += baseWeight(j) * coverageMultiplier(j);
-        return total > 0 ? mine / total : 0;
+        for (int j : live) total += baseWeight(j) * coverageMultiplier(j);
+        if (total <= 0) return 0;
+        if (live.size() < CAP_MIN_VALIDATORS) return mine / total;   // cap vacuous -> exact prior behavior
+        Double capped = cappedShares(live).get(idx);
+        return capped == null ? 0 : capped;
+    }
+
+    /** Iteratively cap each live validator's normalized weight at WEIGHT_CAP, redistributing the excess
+     *  proportionally among the still-uncapped, until stable. Deterministic (iterates the ordered live list). */
+    java.util.Map<Integer, Double> cappedShares(java.util.List<Integer> live) {
+        java.util.Map<Integer, Double> w = new java.util.HashMap<>();
+        double total = 0; for (int j : live) { double v = baseWeight(j) * coverageMultiplier(j); w.put(j, v); total += v; }
+        for (int j : live) w.put(j, total > 0 ? w.get(j) / total : 0);
+        java.util.Set<Integer> capped = new java.util.HashSet<>();
+        for (int iter = 0; iter <= live.size(); iter++) {
+            double excess = 0; boolean any = false;
+            for (int j : live) if (!capped.contains(j) && w.get(j) > WEIGHT_CAP + 1e-12) { excess += w.get(j) - WEIGHT_CAP; w.put(j, WEIGHT_CAP); capped.add(j); any = true; }
+            if (!any) break;
+            double freeSum = 0; for (int j : live) if (!capped.contains(j)) freeSum += w.get(j);
+            if (freeSum <= 0) break;
+            for (int j : live) if (!capped.contains(j)) w.put(j, w.get(j) + excess * (w.get(j) / freeSum));
+        }
+        return w;
     }
 
     /** RANDAO-style randomness beacon: derived from the previous block's quorum signatures, so no

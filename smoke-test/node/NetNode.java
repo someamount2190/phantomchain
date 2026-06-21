@@ -107,7 +107,8 @@ public class NetNode extends NanoHTTPD {
             N = vn;
             VAL_IDS = ledger.validators.toArray(new String[0]);
             for (Map.Entry<String, String> e : ledger.valPubs.entrySet())
-                PUB_BY_ID.computeIfAbsent(e.getKey(), kk -> new MLDSAPublicKeyParameters(MLDSAParameters.ml_dsa_65, PhantomCrypto.unhex(e.getValue())));
+                if (!"CLUSTER".equals(e.getValue()))   // a cluster has no single key; its consensus sig is an M-of-N member bundle (verifyClusterVote)
+                    PUB_BY_ID.computeIfAbsent(e.getKey(), kk -> new MLDSAPublicKeyParameters(MLDSAParameters.ml_dsa_65, PhantomCrypto.unhex(e.getValue())));
         }
         if (index < 0) {
             int myIdx = ledger.validators.indexOf(id);
@@ -216,7 +217,7 @@ public class NetNode extends NanoHTTPD {
     boolean isLight() { return "light".equals(ledger.tiers.get(id)); }
     int myShardIdx() { return (index < 0 ? 0 : index) % RS_N; }
     /** Drop full archived bodies, retaining only THIS node's RS shard (~1/k size). Light tier keeps nothing. */
-    void pruneArchived() {
+    void pruneArchived() throws Exception {
         int upTo = ledger.chain.size() - Ledger.RETAIN_RECENT;
         boolean changed = false;
         synchronized (ledger) {
@@ -272,8 +273,13 @@ public class NetNode extends NanoHTTPD {
             JSONObject v = qc.getJSONObject(i);
             int idx = v.getInt("i");
             if (idx < 0 || idx >= N || isSlashed(idx) || !committee.contains(idx)) continue;   // off-committee or slashed votes don't count
-            MLDSAPublicKeyParameters pub = PUB_BY_ID.get(VAL_IDS[idx]);
-            if (pub != null && PhantomCrypto.verify(pub, PhantomCrypto.utf8(hash), PhantomCrypto.unhex(v.getString("sig")))) ok.add(idx);
+            String valId = VAL_IDS[idx];
+            if (ledger.isCluster(valId)) {                                                     // cluster validator: vote is an M-of-N member-sig bundle
+                if (ledger.verifyClusterVote(valId, hash, v.optJSONArray("bundle"))) ok.add(idx);
+            } else {
+                MLDSAPublicKeyParameters pub = PUB_BY_ID.get(valId);
+                if (pub != null && PhantomCrypto.verify(pub, PhantomCrypto.utf8(hash), PhantomCrypto.unhex(v.getString("sig")))) ok.add(idx);
+            }
         }
         return ok.size() >= ledger.committeeQuorum(height);
     }
@@ -668,7 +674,11 @@ public class NetNode extends NanoHTTPD {
                     String bj = httpGet(addr, "/block?h=" + want); if (bj == null) break;
                     JSONObject blk = new JSONObject(bj.trim());
                     if (blk.has("error") || !verifyQC(blk)) break;
-                    synchronized (ledger) { if (!"appended".equals(ledger.commitBlock(blk, PUB_BY_ID))) break; save(); }
+                    synchronized (ledger) {
+                        String cr = ledger.commitBlock(blk, PUB_BY_ID);
+                        if (!"appended".equals(cr)) { System.out.println("sync h=" + want + " rejected by ledger: " + cr); break; }   // surface the reason (was silently swallowed)
+                        save();
+                    }
                     seenBlock.add(blk.getString("hash"));
                 }
             } catch (Exception e) { }

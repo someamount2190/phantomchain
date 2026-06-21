@@ -72,12 +72,13 @@ public class MainActivity extends AppCompatActivity {
         recoverField = new EditText(this); recoverField.setHint("paste backup QR text to recover");
         Button bRecover = new Button(this); bRecover.setText("Recover from backup");
         Button bCreate = new Button(this); bCreate.setText("Create new wallet");
+        Button bContribute = new Button(this); bContribute.setText("Contribute to cluster (biometric)");
 
         qr = new ImageView(this); qr.setMinimumHeight(440);
         log = new TextView(this); log.setText("");
 
         for (View v : new View[]{title, sub, account, balance, bRefresh, bReceive,
-                toField, amtField, feeField, bSend, pwField, bBackup, recoverField, bRecover, bCreate, qr, log})
+                toField, amtField, feeField, bSend, pwField, bBackup, recoverField, bRecover, bCreate, bContribute, qr, log})
             root.addView(v);
         ScrollView sv = new ScrollView(this); sv.addView(root); setContentView(sv);
 
@@ -98,6 +99,24 @@ public class MainActivity extends AppCompatActivity {
         bSend.setOnClickListener(v -> send());
         bBackup.setOnClickListener(v -> backup());
         bRecover.setOnClickListener(v -> recover());
+        bContribute.setOnClickListener(v -> contribute());
+    }
+
+    /** Spec §9: contribute this device to a cluster with explicit biometric consent. One biometric
+     *  unseals the member key for the session; the on-device ClusterMember server then signs block
+     *  hashes the desktop coordinator requests, until the app is closed. */
+    void contribute() {
+        if (!WalletStore.exists(this)) { log("create a wallet first (this device's account is its cluster member id)"); return; }
+        try {
+            byte[] iv = WalletStore.iv(this), ct = WalletStore.ct(this);
+            withSeal("Consent to contribute to the cluster", false, iv, cipher -> bg(() -> {
+                try {
+                    byte[] seed = cipher.doFinal(ct);
+                    String mid = ClusterMember.start(8080, seed);
+                    log("CONTRIBUTING to cluster as member\n" + mid + "\nsigning service live on :8080 (biometric consent given)");
+                } catch (Exception e) { log("contribute failed: " + e.getMessage()); }
+            }));
+        } catch (Exception e) { log("contribute failed: " + e.getMessage()); }
     }
 
     // ---- biometric gate: run `onCipher` with an authenticated Cipher ----
@@ -117,11 +136,30 @@ public class MainActivity extends AppCompatActivity {
         bp.authenticate(info, new BiometricPrompt.CryptoObject(cipher));
     }
 
+    boolean bioReady() {
+        try {
+            return androidx.biometric.BiometricManager.from(this)
+                    .canAuthenticate(androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG)
+                    == androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS;
+        } catch (Exception e) { return false; }
+    }
+
+    /** Run onCipher with a seed-seal cipher: real biometric prompt if a biometric is enrolled, otherwise
+     *  (e.g. a headless emulator) a simulated-consent path with a non-gated key under a separate alias. */
+    void withSeal(String reason, boolean encrypt, byte[] iv, Consumer<Cipher> onCipher) {
+        try {
+            boolean bio = bioReady();
+            Cipher c = encrypt ? BioKeystore.encryptCipher(bio) : BioKeystore.decryptCipher(iv, bio);
+            if (bio) bioAuth(reason, c, onCipher);
+            else { log("[debug] simulated consent — no biometric enrolled"); onCipher.accept(c); }
+        } catch (Exception e) { log("auth failed: " + e.getMessage()); }
+    }
+
     void createWallet() {
         try {
             byte[] seed = Wallet.newSeed();
             String id = Wallet.idFromSeed(seed);
-            bioAuth("Authenticate to create wallet", BioKeystore.encryptCipher(), cipher -> {
+            withSeal("Authenticate to create wallet", true, null, cipher -> {
                 try {
                     byte[] ct = cipher.doFinal(seed);
                     WalletStore.save(this, id, cipher.getIV(), ct);
@@ -152,7 +190,7 @@ public class MainActivity extends AppCompatActivity {
         if (to.isEmpty()) { log("enter recipient"); return; }
         try {
             byte[] iv = WalletStore.iv(this), ct = WalletStore.ct(this);
-            bioAuth("Authenticate to sign & send", BioKeystore.decryptCipher(iv), cipher -> bg(() -> {
+            withSeal("Authenticate to sign & send", false, iv, cipher -> bg(() -> {
                 try {
                     byte[] seed = cipher.doFinal(ct);
                     Wallet w = new Wallet(seed, NODE, tls);
@@ -168,7 +206,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             byte[] iv = WalletStore.iv(this), ct = WalletStore.ct(this);
             String pw = pwField.getText().toString();
-            bioAuth("Authenticate to back up seed", BioKeystore.decryptCipher(iv), cipher -> {
+            withSeal("Authenticate to back up seed", false, iv, cipher -> {
                 try {
                     byte[] seed = cipher.doFinal(ct);
                     byte[] blob = PhantomCrypto.backup(seed, pw, new byte[0]);
@@ -187,7 +225,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             byte[] seed = Wallet.recoverSeed(Base64.getDecoder().decode(b64), pw);
             String id = Wallet.idFromSeed(seed);
-            bioAuth("Authenticate to store recovered wallet", BioKeystore.encryptCipher(), cipher -> {
+            withSeal("Authenticate to store recovered wallet", true, null, cipher -> {
                 try {
                     byte[] ct = cipher.doFinal(seed);
                     WalletStore.save(this, id, cipher.getIV(), ct);

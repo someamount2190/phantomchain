@@ -21,7 +21,16 @@ smoke-test/node/node-data*/
 smoke-test/node/ph[0-9]*/
 smoke-test/node/testnet/
 smoke-test/node/tn[0-9]*/
+smoke-test/node/join/
+smoke-test/node/live/
+smoke-test/node/bt/
 **/pcdata/
+
+# Scratch: UI dumps, cert-chain captures, stray text logs
+**/ui*.xml
+**/chain.txt
+**/*log.txt
+**/log.txt
 chain.json
 votes*.json
 node-*.json

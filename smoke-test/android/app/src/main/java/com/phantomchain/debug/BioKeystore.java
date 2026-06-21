@@ -23,36 +23,46 @@ public class BioKeystore {
     static final String AKS = "AndroidKeyStore";
     static final String XFORM = "AES/GCM/NoPadding";
 
-    static SecretKey getOrCreate() throws Exception {
+    static SecretKey getOrCreate() throws Exception { return getOrCreate(true); }
+
+    /** auth=true: per-use biometric-gated key (real devices). auth=false: a non-gated key under a separate
+     *  alias, used ONLY on a device with no biometric enrolled (e.g. a headless emulator) so the demo can
+     *  run with simulated consent. The seal is opened with the same variant it was created with. */
+    static SecretKey getOrCreate(boolean auth) throws Exception {
+        String alias = auth ? ALIAS : ALIAS + "_sim";
         KeyStore ks = KeyStore.getInstance(AKS); ks.load(null);
-        if (ks.containsAlias(ALIAS)) return (SecretKey) ks.getKey(ALIAS, null);
+        if (ks.containsAlias(alias)) return (SecretKey) ks.getKey(alias, null);
         KeyGenerator kg = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, AKS);
-        KeyGenParameterSpec.Builder b = new KeyGenParameterSpec.Builder(ALIAS,
+        KeyGenParameterSpec.Builder b = new KeyGenParameterSpec.Builder(alias,
                 KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setKeySize(256)
-                .setUserAuthenticationRequired(true)
-                .setInvalidatedByBiometricEnrollment(true);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
-            b.setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG);  // per-use biometric
-        else
-            b.setUserAuthenticationValidityDurationSeconds(-1);
+                .setKeySize(256);
+        if (auth) {
+            b.setUserAuthenticationRequired(true).setInvalidatedByBiometricEnrollment(true);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+                b.setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG);  // per-use biometric
+            else
+                b.setUserAuthenticationValidityDurationSeconds(-1);
+        }
         kg.init(b.build());
         return kg.generateKey();
     }
 
+    static Cipher encryptCipher() throws Exception { return encryptCipher(true); }
+    static Cipher decryptCipher(byte[] iv) throws Exception { return decryptCipher(iv, true); }
+
     /** Cipher for sealing the seed — bind to a BiometricPrompt CryptoObject, then doFinal(seed). */
-    static Cipher encryptCipher() throws Exception {
+    static Cipher encryptCipher(boolean auth) throws Exception {
         Cipher c = Cipher.getInstance(XFORM);
-        c.init(Cipher.ENCRYPT_MODE, getOrCreate());
+        c.init(Cipher.ENCRYPT_MODE, getOrCreate(auth));
         return c;
     }
 
     /** Cipher for opening the sealed seed — bind to a BiometricPrompt CryptoObject, then doFinal(ct). */
-    static Cipher decryptCipher(byte[] iv) throws Exception {
+    static Cipher decryptCipher(byte[] iv, boolean auth) throws Exception {
         Cipher c = Cipher.getInstance(XFORM);
-        c.init(Cipher.DECRYPT_MODE, getOrCreate(), new GCMParameterSpec(128, iv));
+        c.init(Cipher.DECRYPT_MODE, getOrCreate(auth), new GCMParameterSpec(128, iv));
         return c;
     }
 }

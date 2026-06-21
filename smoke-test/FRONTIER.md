@@ -59,6 +59,33 @@ needs significant infra and, in places, the Tier-3 research primitives.
   full-replication (every validator holds the whole ledger), which is correct but not sharded. Erasure
   coding + RTT-attested geo-verification is a large distributed-systems build; the weighting math
   (`0.6·√stake + 0.4·identity`) is already in `weight()`. The shard/geo layers are the remaining frontier.
+
+  **CLUSTER MINING — a cluster of M-of-N member devices acting as ONE validator (spec §9): BUILT + VERIFIED.**
+  The earlier bullet covered the *sharding/storage/geo* layers; this is the cluster *mining* model itself —
+  the part the spec leads with ("devices collectively are the mining node"). Now built:
+  - **State machine (`Ledger`):** a `CLUSTERFORM` tx registers a cluster as a single append-only validator
+    (`valPubs="CLUSTER"` marker); pooled member stake must meet the validator floor; each member's pubkey is
+    bound to its id; the cluster's "signature" on a block is an **M-of-N bundle of member ML-DSA sigs**
+    (`verifyClusterVote`), and epoch rewards are split **directly to each member identity** with no operator
+    intermediary (`creditEarner`, §9.6). Cluster weight = pooled stake + member-count identity weight (§9.4).
+    State-root coverage is backward-compatible (the cluster section is omitted when empty, so pre-cluster
+    chains — incl. the live testnet — hash identically). Verified: `node/ClusterTest.java` 25/25
+    (formation, M-of-N threshold + forgery/duplicate/non-member/wrong-hash rejection, direct reward split).
+  - **Consensus (`NetNode` + driver):** `verifyQC` accepts a cluster validator's M-of-N bundle. Verified
+    end-to-end in `node/ClusterConsensus.java` 7/7 — the cluster is elected proposer by weight, co-signs via
+    rotating 2-of-3 member subsets (M-of-N liveness — a member can be offline), commits real blocks through
+    the real engine (weighted `proposerFor`, RANDAO beacon, state/shard roots), members earn equally, and a
+    sub-threshold (1-of-3) vote fails the QC.
+  - **Real devices (Android):** the wallet app gained a cluster-member role (`ClusterMember` on-device
+    signing server, started by a biometric-consented "Contribute to cluster"). `node/ClusterCoordinator.java`
+    forms a 2-of-3 cluster from emulator device(s) + desktop members and casts the cluster's vote by fetching
+    each device's signature live. **Verified: a real Android emulator co-signed all 9 of the cluster's blocks
+    (signature ML-DSA-verified, not forgeable by the coordinator) and its device wallet earned directly.**
+  - **Remaining:** RS-sharded intra-cluster ledger (§9.3), cluster collapse/reform (§9.7), per-cluster
+    geo-premium + 10% cap wired through the cluster (vs per-validator). **Honest research gap (unchanged):**
+    true threshold ML-DSA aggregate signature — no production library; the M-of-N bundle is the interim, not a
+    threshold sig. Host note: only one emulator runs stably alongside the desktop coordinator (saturation),
+    so the live device demo is 1 device + 2 desktop members; the coordinator accepts N device endpoints.
 - **Cross-chain bridge / external tx layer** (Doc C): **DONE end-to-end via existing engineering.** On-chain:
   custodian M-of-N set, BRIDGE_RESERVE, SHAKE-256 ext-addresses (`/extaddr`), `BRIDGE_OUT` (lock) + `BRIDGE_IN`
   (M-of-N attested release, replay guard) + `ORACLE` (median-of-custodian rate feed). **Off-chain custodian

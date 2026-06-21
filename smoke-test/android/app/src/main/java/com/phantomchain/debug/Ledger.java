@@ -40,6 +40,11 @@ public class Ledger {
     final Map<String, String> valPubs = new HashMap<>();          // validator id -> consensus pubkey hex (genesis + joined)
     final Map<String, String> regions = new HashMap<>();          // validator id -> region_id (opt-in geo coverage premium)
     final Map<String, String> tiers = new HashMap<>();            // validator id -> "light" (absent/"heavy" = full archived-body storage)
+    // ---- cluster mining (spec §9): a cluster of M-of-N enrolled member devices acts as ONE validator;
+    // its block "signature" is a bundle of >=threshold member ML-DSA sigs, and epoch rewards are split
+    // DIRECTLY to each member identity (no operator intermediary, §9.6). Threshold-Dilithium aggregation
+    // is the research primitive that would compress the bundle to one sig; this is the honest M-of-N interim.
+    final Map<String, JSONObject> clusters = new HashMap<>();      // clusterId -> {members:[id...], memberPubs:{id->pubHex}, threshold:M}
     // ---- cross-chain bridge (on-chain side; the M-of-N custodian HSM service is the explicit OFF-chain trust boundary) ----
     final Map<String, String> custodians = new HashMap<>();        // custodian id -> pubkey hex
     int bridgeThreshold = 1;                                       // M-of-N custodian attestations required (governable)
@@ -87,8 +92,8 @@ public class Ledger {
     String lastHash() throws Exception { return chain.isEmpty() ? ZERO32 : chain.get(chain.size() - 1).getString("hash"); }
     // ---- ledger-history sharding: a block keeps a full body or is pruned to header-only ----
     boolean hasBody(int h) { return h >= 0 && h < chain.size() && chain.get(h).has("txs"); }
-    void pruneBlock(int h) { chain.get(h).remove("txs"); chain.get(h).put("pruned", true); }   // keep header (hash/qc/proposer/roots)
-    void pruneBlockRS(int h, int idx, byte[] shard) {   // drop the full body, retain only THIS node's RS shard
+    void pruneBlock(int h) throws Exception { chain.get(h).remove("txs"); chain.get(h).put("pruned", true); }   // keep header (hash/qc/proposer/roots)
+    void pruneBlockRS(int h, int idx, byte[] shard) throws Exception {   // drop the full body, retain only THIS node's RS shard
         chain.get(h).remove("txs");
         chain.get(h).put("pruned", true).put("rsIdx", idx).put("rsShard", PhantomCrypto.hex(shard));
     }
@@ -116,7 +121,7 @@ public class Ledger {
     static final java.util.Set<String> SPECIAL = new java.util.HashSet<>(java.util.Arrays.asList(
             "GENESIS", "SLASH", "VOUCH", "BOND", "UNBOND", "UNJAIL", "PROPOSE", "VOTE",
             "REGISTER", "ROTATE", "SETGUARDIANS", "RECOVER", "SETBENEFICIARY", "CLAIM", "VALJOIN",
-            "BRIDGE_OUT", "BRIDGE_IN", "ORACLE"));
+            "CLUSTERFORM", "BRIDGE_OUT", "BRIDGE_IN", "ORACLE"));
     static boolean isTransfer(JSONObject tx) { return !SPECIAL.contains(tx.optString("from")); }
 
     /** Stable tx id for dedup/mempool removal: the signature if present, else a hash of the tx body
@@ -272,6 +277,8 @@ public class Ledger {
         root.put("tiers", tr);
         JSONObject cu = new JSONObject(); for (Map.Entry<String, String> e : custodians.entrySet()) cu.put(e.getKey(), e.getValue());
         root.put("custodians", cu);
+        JSONObject cls = new JSONObject(); for (Map.Entry<String, JSONObject> e : clusters.entrySet()) cls.put(e.getKey(), e.getValue());
+        root.put("clusters", cls);
         JSONArray bp = new JSONArray(); for (String x : bridgeProcessed) bp.put(x);
         root.put("bridgeProcessed", bp);
         JSONObject orc = new JSONObject();
@@ -347,6 +354,8 @@ public class Ledger {
         if (rg != null) for (String k : keysOf(rg)) regions.put(k, rg.getString(k));
         tiers.clear(); JSONObject tr = root.optJSONObject("tiers");
         if (tr != null) for (String k : keysOf(tr)) tiers.put(k, tr.getString(k));
+        clusters.clear(); JSONObject cls = root.optJSONObject("clusters");
+        if (cls != null) for (String k : keysOf(cls)) clusters.put(k, cls.getJSONObject(k));
         custodians.clear(); JSONObject cu = root.optJSONObject("custodians");
         if (cu != null) for (String k : keysOf(cu)) custodians.put(k, cu.getString(k));
         bridgeProcessed.clear(); JSONArray bp = root.optJSONArray("bridgeProcessed");
@@ -527,6 +536,7 @@ public class Ledger {
                     }
                     break;
                 }
+                case "CLUSTERFORM": applyClusterForm(tx); break;   // a bonded cluster of M-of-N members joins the validator set as ONE validator
                 case "BRIDGE_OUT":   // locked amount already moved to reserve via projection
                     blockFees += tx.optLong("fee", 0);
                     bridgeOuts.add(new JSONObject().put("actor", tx.getString("actor")).put("chain", tx.getString("chain"))
@@ -693,7 +703,7 @@ public class Ledger {
 
     /** Authorize a signer: a registered identity must sign with one of its CURRENT device keys; an
      *  unregistered account stays self-sovereign (validator key or sha3(pub)==id). */
-    MLDSAPublicKeyParameters authPub(String id, JSONObject tx, Map<String, MLDSAPublicKeyParameters> pubById) {
+    MLDSAPublicKeyParameters authPub(String id, JSONObject tx, Map<String, MLDSAPublicKeyParameters> pubById) throws Exception {
         JSONObject idn = identities.get(id);
         if (idn == null) return pubFor(id, tx, pubById);
         String ph = tx.optString("pub", "");
@@ -759,7 +769,7 @@ public class Ledger {
         byte[] sig = PhantomCrypto.sign(guardianDeviceKey, PhantomCrypto.utf8("recover|" + chainId + "|" + id + "|" + newDevice + "|" + rotNonce));
         return new JSONObject().put("guardian", guardianId).put("pub", pub).put("sig", PhantomCrypto.hex(sig));
     }
-    JSONObject buildRecoverTx(String id, String newDevice, long rotNonce, JSONArray approvals) {
+    JSONObject buildRecoverTx(String id, String newDevice, long rotNonce, JSONArray approvals) throws Exception {
         return new JSONObject().put("from", "RECOVER").put("id", id).put("newDevice", newDevice).put("rotNonce", rotNonce).put("cid", chainId).put("approvals", approvals);
     }
 
@@ -787,7 +797,7 @@ public class Ledger {
                 .put("pub", PhantomCrypto.hex(key.getPublicKeyParameters().getEncoded()));
         return tx.put("sig", PhantomCrypto.hex(PhantomCrypto.sign(key, PhantomCrypto.utf8(actionCanon(tx)))));
     }
-    JSONObject buildClaimTx(String account, long salt) { return new JSONObject().put("from", "CLAIM").put("account", account).put("salt", salt).put("cid", chainId); }
+    JSONObject buildClaimTx(String account, long salt) throws Exception { return new JSONObject().put("from", "CLAIM").put("account", account).put("salt", salt).put("cid", chainId); }
 
     // ===== dynamic validator set: a bonded key joins the validator set (append-only) =====
     boolean verifyValJoin(JSONObject tx) throws Exception {
@@ -806,6 +816,100 @@ public class Ledger {
         return new JSONObject().put("from", "VALJOIN").put("pubkey", pub).put("cid", chainId).put("beaconCommit0", commit0).put("sig", PhantomCrypto.hex(sig));
     }
 
+    // ===== cluster mining (spec §9): M-of-N member devices act as one validator =====
+    boolean isCluster(String id) { return clusters.containsKey(id); }
+
+    static String clusterFormCanon(String cid, String clusterId, JSONArray members, int threshold) {
+        return "clusterform|" + cid + "|" + clusterId + "|" + members.toString() + "|" + threshold;
+    }
+
+    /** A cluster forms by: bonding the cluster account >= minValidatorStake, then an initiating member
+     *  signs the {members, threshold} set. The cluster then joins the validator set as a single validator. */
+    boolean verifyClusterForm(JSONObject tx) throws Exception {
+        if (!chainId.equals(tx.optString("cid", ""))) return false;
+        String clusterId = tx.getString("clusterId");
+        if (validators.contains(clusterId) || clusters.containsKey(clusterId)) return false;     // no re-form / id clash
+        JSONArray members = tx.getJSONArray("members"); JSONObject mpubs = tx.getJSONObject("memberPubs");
+        int threshold = tx.getInt("threshold");
+        if (members.length() == 0 || threshold < 1 || threshold > members.length()) return false;
+        java.util.Set<String> uniq = new java.util.HashSet<>();
+        for (int i = 0; i < members.length(); i++) {                                              // members distinct + pubkey binds to id
+            String mid = members.getString(i); if (!uniq.add(mid)) return false;
+            String mp = mpubs.optString(mid, ""); if (mp.isEmpty() || !idOf(mp).equals(mid)) return false;
+        }
+        long clusterStake = 0; for (int i = 0; i < members.length(); i++) clusterStake += stake.getOrDefault(members.getString(i), 0L);
+        if (clusterStake < minValidatorStake) return false;                                        // pooled member stake meets the validator floor (§9.4)
+        if (tx.optString("beaconCommit0", "").length() != 64) return false;                       // binds the cluster's first beacon reveal
+        String initPub = tx.getString("initPub"); String initId = idOf(initPub);
+        if (!uniq.contains(initId)) return false;                                                  // initiator must be a member
+        return PhantomCrypto.verify(pk(initPub),
+                PhantomCrypto.utf8(clusterFormCanon(chainId, clusterId, members, threshold) + "|" + tx.getString("beaconCommit0")),
+                PhantomCrypto.unhex(tx.getString("sig")));
+    }
+
+    JSONObject buildClusterFormTx(String clusterId, java.util.List<String> members, Map<String, String> memberPubs,
+                                  int threshold, MLDSAPrivateKeyParameters initKey, String beaconCommit0) throws Exception {
+        JSONArray ms = new JSONArray(); for (String m : members) ms.put(m);
+        JSONObject mp = new JSONObject(); for (Map.Entry<String, String> e : memberPubs.entrySet()) mp.put(e.getKey(), e.getValue());
+        String initPub = PhantomCrypto.hex(initKey.getPublicKeyParameters().getEncoded());
+        byte[] sig = PhantomCrypto.sign(initKey, PhantomCrypto.utf8(clusterFormCanon(chainId, clusterId, ms, threshold) + "|" + beaconCommit0));
+        return new JSONObject().put("from", "CLUSTERFORM").put("clusterId", clusterId).put("members", ms)
+                .put("memberPubs", mp).put("threshold", threshold).put("cid", chainId)
+                .put("initPub", initPub).put("beaconCommit0", beaconCommit0).put("sig", PhantomCrypto.hex(sig));
+    }
+
+    /** Apply a CLUSTERFORM to state (idempotent; the cluster joins the validator set as one validator).
+     *  Shared by commitBlock and tests. Returns true iff the cluster was registered. */
+    boolean applyClusterForm(JSONObject tx) throws Exception {
+        if (!verifyClusterForm(tx)) return false;
+        String clusterId = tx.getString("clusterId"); JSONArray cm = tx.getJSONArray("members");
+        if (validators.contains(clusterId) || clusters.containsKey(clusterId)) return false;
+        long clusterStake = 0; for (int mi = 0; mi < cm.length(); mi++) clusterStake += stake.getOrDefault(cm.getString(mi), 0L);
+        clusters.put(clusterId, new JSONObject().put("members", cm)
+                .put("memberPubs", tx.getJSONObject("memberPubs")).put("threshold", tx.getInt("threshold")));
+        validators.add(clusterId); valPubs.put(clusterId, "CLUSTER");   // marker: consensus sig is an M-of-N member bundle, not one key
+        stake.put(clusterId, clusterStake);                            // §9.4 cluster_total_stake = pooled member stake
+        identity.put(clusterId, (long) cm.length());                   // §9.4 cluster identity weight = enrolled members
+        commits.put(clusterId, tx.getString("beaconCommit0"));
+        return true;
+    }
+
+    /** A cluster's consensus signature on a block is a bundle [{m:memberId, sig}]; valid iff >= threshold
+     *  DISTINCT member keys signed the block hash. This is the M-of-N stand-in for a threshold signature. */
+    boolean verifyClusterVote(String clusterId, String hash, JSONArray bundle) throws Exception {
+        JSONObject c = clusters.get(clusterId); if (c == null || bundle == null) return false;
+        JSONObject mpubs = c.getJSONObject("memberPubs"); int threshold = c.getInt("threshold");
+        java.util.Set<String> members = new java.util.HashSet<>();
+        JSONArray ms = c.getJSONArray("members"); for (int i = 0; i < ms.length(); i++) members.add(ms.getString(i));
+        java.util.Set<String> seen = new java.util.HashSet<>(); int ok = 0;
+        for (int i = 0; i < bundle.length(); i++) {
+            JSONObject e = bundle.getJSONObject(i); String mid = e.optString("m", "");
+            if (!members.contains(mid) || !seen.add(mid)) continue;                               // unknown or double-counted member
+            String mp = mpubs.optString(mid, ""); if (mp.isEmpty()) continue;
+            if (PhantomCrypto.verify(pk(mp), PhantomCrypto.utf8(hash), PhantomCrypto.unhex(e.getString("sig")))) ok++;
+        }
+        return ok >= threshold;
+    }
+
+    /** Credit an epoch-reward share to a validator. For a cluster the share is split DIRECTLY and equally
+     *  among its member identities (spec §9.6 — no operator intermediary); remainder to the first members. */
+    void creditEarner(String valId, long share) throws Exception {
+        if (share <= 0) return;
+        JSONObject c = clusters.get(valId);
+        if (c != null) {
+            JSONArray ms = c.getJSONArray("members"); int n = ms.length();
+            long per = share / n, rem = share - per * n;
+            for (int i = 0; i < n; i++) {
+                String mid = ms.getString(i); long amt = per + (i < rem ? 1 : 0);
+                Account a = accounts.get(mid); if (a == null) { a = new Account(); accounts.put(mid, a); }
+                a.balance += amt;
+            }
+        } else {
+            Account a = accounts.get(valId); if (a == null) { a = new Account(); accounts.put(valId, a); }
+            a.balance += share;
+        }
+    }
+
     // ===== cross-chain bridge (on-chain side) =====
     static String extAddr(String chain, String pubHex) {
         byte[] dom = PhantomCrypto.utf8("ext_addr_" + chain + "|"), pk = PhantomCrypto.unhex(pubHex);
@@ -813,7 +917,7 @@ public class Ledger {
         System.arraycopy(dom, 0, in, 0, dom.length); System.arraycopy(pk, 0, in, dom.length, pk.length);
         return PhantomCrypto.hex(PhantomCrypto.shake256(in, 20));   // deterministic 20-byte external address
     }
-    static String bridgeOutCanon(JSONObject tx) {
+    static String bridgeOutCanon(JSONObject tx) throws Exception {
         return "bridgeout|" + tx.optString("cid", "") + "|" + tx.getString("actor") + "|" + tx.getString("chain")
                 + "|" + tx.getString("extAddr") + "|" + tx.getLong("amount") + "|" + tx.optLong("fee", 0) + "|" + tx.getLong("nonce");
     }
@@ -844,7 +948,7 @@ public class Ledger {
         byte[] sig = PhantomCrypto.sign(custKey, PhantomCrypto.utf8("bridgein|" + chainId + "|" + recipient + "|" + amount + "|" + extTxid));
         return new JSONObject().put("custodian", custodianId).put("pub", pub).put("sig", PhantomCrypto.hex(sig));
     }
-    JSONObject buildBridgeInTx(String recipient, long amount, String extTxid, JSONArray approvals) {
+    JSONObject buildBridgeInTx(String recipient, long amount, String extTxid, JSONArray approvals) throws Exception {
         return new JSONObject().put("from", "BRIDGE_IN").put("recipient", recipient).put("amount", amount)
                 .put("extTxid", extTxid).put("cid", chainId).put("approvals", approvals);
     }
@@ -879,7 +983,7 @@ public class Ledger {
     /** Deterministic hash of all consensus-relevant state (canonical: sorted maps). Committed in each
      *  block header as the post-state of the PREVIOUS block (Tendermint-style app hash), so any
      *  divergence in balances/stake/personhood/jail/supply/params is detected at the next block. */
-    String stateRoot() {
+    String stateRoot() throws Exception {
         StringBuilder sb = new StringBuilder("acc|");
         java.util.List<String> ids = new ArrayList<>(accounts.keySet()); java.util.Collections.sort(ids);
         for (String id : ids) { Account a = accounts.get(id); sb.append(id).append(':').append(a.balance).append(':').append(a.nonce).append(';'); }
@@ -903,6 +1007,11 @@ public class Ledger {
         for (String v : trl) sb.append(v).append('=').append(tiers.get(v)).append(';');
         sb.append("cu|"); java.util.List<String> cul = new ArrayList<>(custodians.keySet()); java.util.Collections.sort(cul);
         for (String v : cul) sb.append(v).append('=').append(custodians.get(v)).append(';');
+        if (!clusters.isEmpty()) {   // appended only when clusters exist -> empty-cluster chains keep their prior state root (backward compatible)
+            sb.append("cls|"); java.util.List<String> cll = new ArrayList<>(clusters.keySet()); java.util.Collections.sort(cll);
+            for (String k : cll) { JSONObject c = clusters.get(k);
+                sb.append(k).append('=').append(c.getJSONArray("members").toString()).append(':').append(c.getInt("threshold")).append(';'); }
+        }
         sb.append("bth|").append(bridgeThreshold).append("|bp|");
         java.util.List<String> bpl = new ArrayList<>(bridgeProcessed); java.util.Collections.sort(bpl);
         for (String v : bpl) sb.append(v).append(';');
@@ -919,7 +1028,12 @@ public class Ledger {
         for (String id : bl) sb.append(id).append('>').append(beneficiary.get(id)).append(';');
         sb.append("supply|").append(totalMinted).append('|').append(burned);
         sb.append("|params|").append(blockReward).append(',').append(halvingBlocks).append(',').append(maxSupply)
-          .append(',').append(feeBurnBps).append(',').append(slashBps).append(',').append(jailBlocks).append(',').append(unbondingBlocks).append(',').append(estateInactivity).append(',').append(minValidatorStake).append(',').append(identityBond).append(',').append(committeeSize);
+          .append(',').append(feeBurnBps).append(',').append(slashBps).append(',').append(jailBlocks).append(',').append(unbondingBlocks).append(',').append(estateInactivity).append(',').append(minValidatorStake);
+        // state-root param tail compatibility: identityBond + committeeSize were appended in later builds;
+        // a node syncing an older chain can match its deployed serialization via -Dpc.srcompat=
+        String srcompat = System.getProperty("pc.srcompat", "full");
+        if (!"v1".equals(srcompat)) sb.append(',').append(identityBond);                 // v1 = pre-identityBond
+        if (!"v1".equals(srcompat) && !"v2".equals(srcompat)) sb.append(',').append(committeeSize);   // v2 = pre-committeeSize
         // permanent tombstone (excludes from quorum/weight via excluded()) — consensus-critical, must be covered
         sb.append("|sl|"); java.util.List<String> sll = new ArrayList<>(slashed); java.util.Collections.sort(sll);
         for (String v : sll) sb.append(v).append(';');
@@ -947,7 +1061,7 @@ public class Ledger {
     }
 
     /** Canonical serialization of all per-id state assigned to shard s (sorted by id). */
-    String shardData(int s) {
+    String shardData(int s) throws Exception {
         java.util.TreeSet<String> ids = new java.util.TreeSet<>();
         ids.addAll(accounts.keySet()); ids.addAll(stake.keySet()); ids.addAll(identity.keySet());
         ids.addAll(verified); ids.addAll(jailed.keySet()); ids.addAll(identities.keySet());
@@ -964,16 +1078,16 @@ public class Ledger {
         }
         return sb.toString();
     }
-    String shardRoot(int s) { return PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8(shardData(s)))); }
+    String shardRoot(int s) throws Exception { return PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8(shardData(s)))); }
     /** Merkle commitment (flat) over all shard roots — bound into each block header as prevShardsRoot. */
-    String shardsRoot() {
+    String shardsRoot() throws Exception {
         StringBuilder sb = new StringBuilder();
         for (int s = 0; s < SHARDS; s++) sb.append(shardRoot(s));
         return PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8(sb.toString())));
     }
     /** Light-client proof: a shard slice + the sibling roots verify against a committed shardsRoot,
      *  WITHOUT holding the rest of the state. */
-    static boolean verifyShardProof(String committedShardsRoot, int s, String shardDataStr, JSONArray roots) {
+    static boolean verifyShardProof(String committedShardsRoot, int s, String shardDataStr, JSONArray roots) throws Exception {
         if (roots == null || roots.length() != SHARDS || s < 0 || s >= SHARDS) return false;
         if (!roots.getString(s).equals(PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8(shardDataStr))))) return false;
         StringBuilder sb = new StringBuilder();
@@ -1002,7 +1116,7 @@ public class Ledger {
     /** Apply a validated tx's balance/nonce deltas to a projection map (no validation here). */
     void applyProj(JSONObject tx, Map<String, long[]> m) throws Exception {
         String t = tx.optString("from");
-        if ("GENESIS".equals(t) || "SLASH".equals(t) || "VOUCH".equals(t) || "CLAIM".equals(t) || "VALJOIN".equals(t) || "BRIDGE_IN".equals(t) || "ORACLE".equals(t)
+        if ("GENESIS".equals(t) || "SLASH".equals(t) || "VOUCH".equals(t) || "CLAIM".equals(t) || "VALJOIN".equals(t) || "CLUSTERFORM".equals(t) || "BRIDGE_IN".equals(t) || "ORACLE".equals(t)
                 || "REGISTER".equals(t) || "ROTATE".equals(t) || "SETGUARDIANS".equals(t) || "RECOVER".equals(t)) return;   // no projection effect (BRIDGE_IN applied at commit)
         if ("BRIDGE_OUT".equals(t)) { long[] fa = proj(tx.getString("actor"), m); fa[0] -= tx.getLong("amount") + tx.optLong("fee", 0); fa[1] += 1; proj(BRIDGE_RESERVE, m)[0] += tx.getLong("amount"); return; }
         if ("BOND".equals(t)) { long[] fa = proj(tx.getString("actor"), m); fa[0] -= tx.getLong("amount"); fa[1] += 1; return; }
@@ -1024,6 +1138,7 @@ public class Ledger {
         if ("RECOVER".equals(t)) return verifyRecover(tx) ? null : "bad recover";
         if ("CLAIM".equals(t)) return verifyClaim(tx) ? null : "estate not claimable";
         if ("VALJOIN".equals(t)) return verifyValJoin(tx) ? null : "bad valjoin";
+        if ("CLUSTERFORM".equals(t)) return verifyClusterForm(tx) ? null : "bad clusterform";
         if ("BRIDGE_IN".equals(t)) return verifyBridgeIn(tx) ? null : "bad bridge_in";
         if ("ORACLE".equals(t)) return verifyOracle(tx) ? null : "bad oracle";
         if ("BRIDGE_OUT".equals(t)) {   // user locks PHNT to the reserve for external release
@@ -1223,7 +1338,7 @@ public class Ledger {
         return PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.unhex(b.optString("reveal", "")))).equals(prev);
     }
     /** Fold the proposer's revealed value into the beacon and record its next commitment. */
-    void beaconApply(JSONObject b) {
+    void beaconApply(JSONObject b) throws Exception {
         int prop = b.optInt("proposer", -1);
         if (prop < 0 || prop >= validators.size()) return;
         beacon = PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8(beacon + "|" + b.optString("reveal", ""))));
@@ -1311,10 +1426,9 @@ public class Ledger {
         if (totalU <= 0 || pool <= 0) return;
         long distributed = 0;
         for (Map.Entry<String, Long> e : units.entrySet()) {
-            Account a = accounts.get(e.getKey());
-            if (a == null) { a = new Account(); accounts.put(e.getKey(), a); }
             long share = pool * e.getValue() / totalU;
-            a.balance += share; distributed += share;
+            creditEarner(e.getKey(), share);   // cluster shares fan out directly to member identities (§9.6)
+            distributed += share;
         }
         totalMinted += distributed;
     }

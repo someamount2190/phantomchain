@@ -1,0 +1,35 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.phantomchain.debug'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.phantomchain.debug'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '0.3'
+        multiDexEnabled true
+    }
+
+    buildTypes {
+        debug { }
+    }
+
+    compileOptions {
+        coreLibraryDesugaringEnabled true
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.84'
+    implementation 'com.google.zxing:core:3.5.3'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.biometric:biometric:1.1.0'
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
+}

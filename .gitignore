@@ -1,0 +1,58 @@
+# ─────────────────────────────────────────────────────────────
+# Secrets & runtime state — NEVER commit (public repo)
+# ─────────────────────────────────────────────────────────────
+# TLS material, validator keys, keystores
+*.p12
+*.jks
+*.key
+*.pem
+*.keystore
+**/certs/
+truststore.p12
+
+# SSH wrappers — contain droplet root password / host keys
+*.bat
+
+# Nested repo (has its own remote: someamount2190/phantomchain-node)
+smoke-test/pc-node-repo/
+
+# Node runtime data / chain state / per-node dirs
+smoke-test/node/node-data*/
+smoke-test/node/ph[0-9]*/
+smoke-test/node/testnet/
+smoke-test/node/tn[0-9]*/
+**/pcdata/
+chain.json
+votes*.json
+node-*.json
+
+# ─────────────────────────────────────────────────────────────
+# Build outputs & vendored toolchains (regenerable)
+# ─────────────────────────────────────────────────────────────
+**/build/
+**/out/
+**/.gradle/
+smoke-test/android/gradle-dist/
+smoke-test/deploy/
+smoke-test/lib/
+*.apk
+*.dex
+*.class
+
+# VM disk images & artifacts (~1.2 GB)
+smoke-test/vm/*.qcow2
+smoke-test/vm/*.img
+smoke-test/vm/*.iso
+smoke-test/vm/serial.log
+
+# ─────────────────────────────────────────────────────────────
+# Machine-specific config, logs, scratch, generated media
+# ─────────────────────────────────────────────────────────────
+local.properties
+*.log
+*.out
+*.err
+**/yes.txt
+**/no.txt
+**/ui.xml
+*.png

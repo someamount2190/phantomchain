@@ -1,0 +1,48 @@
+# PhantomChain
+
+A post-quantum **PoS-BFT blockchain** with a self-custodial Android wallet. All cryptography uses
+standardized post-quantum primitives via BouncyCastle — no classical ECDSA/RSA in the consensus or
+identity path, and no hand-rolled crypto.
+
+## Architecture
+
+```
+CLIENT / EDGE     Android wallet: biometric-gated Keystore seal, CA-pinned TLS RPC, QR backup
+SERVER / MESH     Validators (NetNode): BFT-lite consensus, P2P discovery, RPC, economics
+STATE MACHINE     Ledger: pure deterministic state transition, committed via a state root per block
+PRIMITIVES        PhantomCrypto: ML-DSA-65, ML-KEM-1024, SHA3/SHAKE, Argon2id, ChaCha20-Poly1305
+```
+
+The `Ledger` is a pure deterministic function of committed blocks (no network dependency — it is the
+same class the Android app embeds). `NetNode` drives consensus but never mutates state outside
+`commitBlock`. See [`smoke-test/ARCHITECTURE.md`](smoke-test/ARCHITECTURE.md) for the full reference.
+
+## What's built
+
+- **Consensus** — BFT-lite with quorum certificates (`N−(N−1)/3`), proposer legitimacy checks, state-root
+  agreement, view-change on dead proposers, single-slot deterministic finality.
+- **Leader election** — commit-reveal RANDAO beacon (un-grindable; adversarially tested).
+- **Identity ≠ key** — durable identities with rotatable device keys, root-authorized rotation, and
+  M-of-N guardian recovery; plus estate/inheritance.
+- **Economics & governance** — decaying capped emission, fee burn, staking with unbonding, slashing with
+  permanent tombstone, snapshot-weighted timelocked governance.
+- **Cluster model** — 16-shard commitment layer, Reed-Solomon (GF(256)) erasure-coded history sharding,
+  heavy/light tiers, geo-coverage premium, dynamic `VALJOIN` membership.
+- **Cross-chain bridge** — on-chain custodian M-of-N core + off-chain custodian daemon.
+
+For the honest status of each layer — including the explicitly **interim** and **research-gated**
+items (proof-of-personhood, threshold ML-DSA, PUF attestation) — see
+[`smoke-test/FRONTIER.md`](smoke-test/FRONTIER.md).
+
+## Design specs
+
+- [`phantomchain-design-spec.md`](phantomchain-design-spec.md) — core protocol
+- [`phantomchain-identity-keys-recovery-v0.3.md`](phantomchain-identity-keys-recovery-v0.3.md) — identity, keys, recovery
+- [`phantomchain-external-tx-layer.md`](phantomchain-external-tx-layer.md) — cross-chain bridge
+- [`phantomchain-geo-coverage-premium.md`](phantomchain-geo-coverage-premium.md) — geo coverage premium
+
+## Build & run
+
+JDK 17 + BouncyCastle. The networked 3-node cluster (real TCP, TLS 1.3, peer discovery, view-change,
+crash recovery, slashing) and the Android debug app are both reproducible — full steps, endpoint
+reference, and gotchas are in [`smoke-test/BUILD.md`](smoke-test/BUILD.md).

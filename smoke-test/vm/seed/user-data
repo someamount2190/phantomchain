@@ -1,0 +1,9 @@
+#cloud-config
+hostname: pcvm
+package_update: true
+packages:
+  - openjdk-17-jdk-headless
+  - git
+runcmd:
+  - [ bash, -lc, "cd /root && git clone https://github.com/someamount2190/phantomchain-node && cd phantomchain-node && nohup bash run.sh 2 9093 192.168.1.138:9093 192.168.1.138:9091 > /root/node2.log 2>&1 &" ]
+final_message: "phantomchain node2 cloud-init done"

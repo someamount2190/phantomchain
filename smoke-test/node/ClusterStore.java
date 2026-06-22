@@ -16,21 +16,30 @@ package com.phantomchain.debug;
  * the spec calls out for the bridge custodian set.
  */
 public class ClusterStore {
-    static byte[] storeKey(byte[] clusterSecret) { return PhantomCrypto.hkdf(clusterSecret, null, PhantomCrypto.utf8("pc-cluster-store-key"), 32); }
-    static byte[] storeNonce(byte[] clusterSecret, long version) { return PhantomCrypto.hkdf(clusterSecret, null, PhantomCrypto.utf8("pc-cluster-store-nonce|" + version), 12); }
+    private static final java.security.SecureRandom RNG = new java.security.SecureRandom();
+    // version domain-separates the KEY; the AEAD nonce is FRESH-RANDOM per encryption (prepended to the
+    // ciphertext) instead of derived from `version`, so confidentiality/integrity no longer depend on a
+    // version being unique — re-sealing the same version with different content can no longer cause a
+    // catastrophic ChaCha20-Poly1305 nonce reuse (crypto audit finding).
+    static byte[] storeKey(byte[] clusterSecret, long version) { return PhantomCrypto.hkdf(clusterSecret, null, PhantomCrypto.utf8("pc-cluster-store-key|" + version), 32); }
 
-    /** Encrypt the partition, then RS(k,n)-shard the ciphertext into n member shards (member i holds shards[i]). */
+    /** Encrypt the partition (fresh random nonce, prepended), then RS(k,n)-shard the framed ciphertext. */
     public static byte[][] shard(byte[] partition, byte[] clusterSecret, long version, int k, int n) {
-        byte[] ct = PhantomCrypto.aead(true, storeKey(clusterSecret), storeNonce(clusterSecret, version), partition);
-        return new ReedSolomon(k, n).encode(ReedSolomon.split(ct, k));
+        byte[] nonce = new byte[12]; RNG.nextBytes(nonce);
+        byte[] ct = PhantomCrypto.aead(true, storeKey(clusterSecret, version), nonce, partition);
+        byte[] framed = new byte[12 + ct.length];
+        System.arraycopy(nonce, 0, framed, 0, 12); System.arraycopy(ct, 0, framed, 12, ct.length);
+        return new ReedSolomon(k, n).encode(ReedSolomon.split(framed, k));
     }
 
     /** Reconstruct the partition from any >=k present member shards (throws if <k, tampered, or wrong key). */
     public static byte[] reconstruct(byte[][] shards, boolean[] present, byte[] clusterSecret, long version, int k, int n) {
         int len = -1; for (int i = 0; i < n; i++) if (present[i] && shards[i] != null) { len = shards[i].length; break; }
         if (len < 0) throw new RuntimeException("no shards present");
-        byte[] ct = ReedSolomon.join(new ReedSolomon(k, n).decode(shards, present, len));
-        return PhantomCrypto.aead(false, storeKey(clusterSecret), storeNonce(clusterSecret, version), ct);   // AEAD verifies integrity + key
+        byte[] framed = ReedSolomon.join(new ReedSolomon(k, n).decode(shards, present, len));
+        byte[] nonce = java.util.Arrays.copyOfRange(framed, 0, 12);
+        byte[] ct = java.util.Arrays.copyOfRange(framed, 12, framed.length);
+        return PhantomCrypto.aead(false, storeKey(clusterSecret, version), nonce, ct);   // AEAD verifies integrity + key
     }
 
     /** Reconstruct the cluster store key from a DKG ceremony using any k present member shares.

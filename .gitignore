@@ -44,6 +44,9 @@ node-*.json
 smoke-test/android/gradle-dist/
 smoke-test/deploy/
 smoke-test/lib/
+smoke-test/sim/
+smoke-test/node/node-data*/
+smoke-test/node/pcdata*/
 *.apk
 *.dex
 *.class

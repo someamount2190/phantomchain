@@ -521,7 +521,8 @@ public class NetNode extends NanoHTTPD {
                 case "/genesis": return resp(GEN.toJson().toString());
                 case "/announce": {   // only the validator that owns this index (proven by signature) can set its address
                     int aidx = Integer.parseInt(param(s, "index")); String addr = param(s, "addr"); String sig = param(s, "sig");
-                    if (aidx >= 0 && aidx < N && addr != null && sig != null) {
+                    if (aidx >= 0 && aidx < N && addr != null && sig != null && addr.indexOf('|') < 0) {   // no delimiter injection into the signed announce
+
                         MLDSAPublicKeyParameters pub = PUB_BY_ID.get(VAL_IDS[aidx]);
                         if (pub != null && PhantomCrypto.verify(pub, PhantomCrypto.utf8("announce|" + GEN.chainId + "|" + aidx + "|" + addr), PhantomCrypto.unhex(sig)))
                             peers.put(aidx, addr);

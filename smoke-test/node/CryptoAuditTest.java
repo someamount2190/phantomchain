@@ -108,20 +108,36 @@ public class CryptoAuditTest {
         ok("7d a tampered share is caught by Feldman verification", !Dkg.verify(tampered, cy.commitments));
         ok("7e the aggregate secret = sum of member contributions (no single member knows it a priori)",
                 cy.contributions.length == 5 && !cy.contributions[0].equals(S));
+        // HARDENED: a malicious dealer is DISQUALIFIED and the ceremony continues (no griefing/abort)
+        Dkg.Deal[] deals = new Dkg.Deal[5]; BigInteger[] cons = new BigInteger[5];
+        for (int m = 0; m < 5; m++) { cons[m] = new BigInteger(200, RND).mod(Dkg.N); deals[m] = Dkg.deal(3, 5, cons[m], RND); }
+        Dkg.Share[] sh = deals[2].shares.clone();                                   // tamper dealer 2's share -> Feldman-inconsistent
+        sh[1] = new Dkg.Share(sh[1].x, sh[1].y.add(BigInteger.ONE).mod(Dkg.N));
+        deals[2] = new Dkg.Deal(deals[2].secret, deals[2].coeffs, sh, deals[2].commitments);
+        Dkg.Ceremony hc = Dkg.ceremonyFrom(3, 5, deals, cons);
+        ok("7f a malicious dealer is DISQUALIFIED and the ceremony continues (qualified=" + hc.qualifiedCount() + "/5)", hc.qualifiedCount() == 4 && !hc.qualified[2]);
+        ok("7g the hardened ceremony's secret reconstructs from k shares (over the qualified set)",
+                Dkg.combine(new Dkg.Share[]{hc.shares[0], hc.shares[1], hc.shares[3]}).equals(hc.secret()));
+
+        // ───── 8. Signing-string delimiter guard (audit NOTE-1 hardening) ─────
+        System.out.println("\n-- 8. Canonical signing-string delimiter guard --");
+        Ledger L = new Ledger();
+        ok("8a a tx field containing the '|' delimiter is rejected (anti-injection)",
+                !Ledger.canonClean(new org.json.JSONObject().put("from", "alice").put("to", "bob|999|1|0")));
+        ok("8b a normal hex/numeric tx passes the guard", Ledger.canonClean(new org.json.JSONObject().put("from", "aa".repeat(32)).put("to", "bb".repeat(32))));
 
         // ───── findings ─────
         System.out.println("\n  ---- FINDINGS / NOTES (audit) ----");
         System.out.println("  [FIXED]   ClusterStore AEAD nonce was derived deterministically from `version`; reusing a");
         System.out.println("            version with different content would have caused a fatal ChaCha20-Poly1305 nonce");
         System.out.println("            reuse (see 2e). Now a fresh random nonce per encryption (3a) + version in the key.");
-        System.out.println("  [NOTE-1]  Canonical signing strings are '|'-joined without escaping/length-prefixing. Not");
-        System.out.println("            exploitable today (ids/pubkeys are hex, amounts/nonces are numeric trailing fields,");
-        System.out.println("            so token counts can't shift), but a future free-form string field would risk");
-        System.out.println("            signature ambiguity. Recommend length-prefixed/typed encoding for robustness.");
-        System.out.println("  [NOTE-2]  DKG is Joint-Feldman: (a) a bad dealer ABORTS the ceremony (throws) rather than");
-        System.out.println("            being disqualified -> griefing/liveness; (b) a rushing adversary can bias S. Impact");
-        System.out.println("            is low here (semi-trusted cluster; store key = sha3(S) neutralizes bias), but a");
-        System.out.println("            complaint/disqualification round (Gennaro DKG) would harden it.");
+        System.out.println("  [FIXED]   NOTE-1 delimiter injection: a central guard now rejects '|' in any field feeding a");
+        System.out.println("            signed canonical (8a/8b) + the /announce addr — closes the class without a format");
+        System.out.println("            change (existing signatures still verify; no honest field carries '|').");
+        System.out.println("  [FIXED]   NOTE-2 DKG griefing: a Feldman-inconsistent dealer is now DISQUALIFIED and the");
+        System.out.println("            ceremony continues over the qualified set (7f/7g) instead of aborting; contributions");
+        System.out.println("            are rejection-sampled (unbiased). Residual rushing-bias is neutralized by store");
+        System.out.println("            key = sha3(S); full Gennaro commit-reveal DKG remains the deeper (optional) step.");
         System.out.println("  [NOTE-3]  ML-DSA signing is DETERMINISTIC in this BouncyCastle build (1e) — safe (no");
         System.out.println("            nonce-reuse class), and the chain doesn't rely on signature unpredictability");
         System.out.println("            (leader election uses the commit-reveal RANDAO, not sign-as-VRF).");

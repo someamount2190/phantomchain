@@ -60,17 +60,19 @@ public class Dkg {
     /** A full N-member, threshold-k DKG ceremony's output. */
     public static final class Ceremony {
         public final int k, n;
-        public final BigInteger[] contributions;     // each member's r_m (member-only)
-        public final Share[] shares;                 // member i's aggregate share of S
-        public final ECPoint[] commitments;          // aggregate commitments C_j = Σ_m a_{m,j}·G
-        public Ceremony(int k, int n, BigInteger[] contributions, Share[] shares, ECPoint[] commitments) {
+        public final BigInteger[] contributions;     // each member's r_m (member-only; null if disqualified)
+        public final Share[] shares;                 // member i's aggregate share of S (over the QUALIFIED set)
+        public final ECPoint[] commitments;          // aggregate commitments C_j = Σ_{m∈Q} a_{m,j}·G
+        public final boolean[] qualified;            // dealer m passed Feldman consistency (included in S)
+        public Ceremony(int k, int n, BigInteger[] contributions, Share[] shares, ECPoint[] commitments, boolean[] qualified) {
             this.k = k; this.n = n; this.contributions = contributions;
-            this.shares = shares; this.commitments = commitments;
+            this.shares = shares; this.commitments = commitments; this.qualified = qualified;
         }
-        /** The aggregate secret S = Σ r_m. Known to NO single member (each knows only their own r_m). */
+        public int qualifiedCount() { int c = 0; for (boolean q : qualified) if (q) c++; return c; }
+        /** The aggregate secret S = Σ_{m∈Q} r_m, over the QUALIFIED dealers. Known to NO single member. */
         public BigInteger secret() {
             BigInteger s = BigInteger.ZERO;
-            for (BigInteger c : contributions) s = s.add(c).mod(N);
+            for (int m = 0; m < contributions.length; m++) if (qualified[m]) s = s.add(contributions[m]).mod(N);
             return s;
         }
     }
@@ -130,30 +132,42 @@ public class Dkg {
         Deal[] deals = new Deal[n];
         BigInteger[] contribs = new BigInteger[n];
         for (int m = 0; m < n; m++) {
-            contribs[m] = new BigInteger(256, rnd).mod(N);
+            contribs[m] = randomField(rnd);                 // unbiased (rejection-sampled, not mod-reduced)
             deals[m] = deal(k, n, contribs[m], rnd);
         }
-        // member i sums the sub-shares it received from every dealer, rejecting any dealer
-        // whose share fails Feldman verification (a malicious/inconsistent dealer is caught here).
+        return ceremonyFrom(k, n, deals, contribs);
+    }
+
+    /** Aggregate pre-built deals (testable: a caller may inject a malicious deal). Hardened against
+     *  griefing: a dealer whose commitments are inconsistent with ANY of its shares is DISQUALIFIED and
+     *  excluded from S, instead of aborting the whole ceremony — one bad dealer can no longer DoS it. */
+    public static Ceremony ceremonyFrom(int k, int n, Deal[] deals, BigInteger[] contribs) {
+        boolean[] qualified = new boolean[n];
+        BigInteger[] contribOut = new BigInteger[n];
+        int qc = 0;
+        for (int m = 0; m < n; m++) {
+            boolean okAll = deals[m].shares.length == n && deals[m].commitments.length == k;
+            for (int i = 0; okAll && i < n; i++) if (!verify(deals[m].shares[i], deals[m].commitments)) okAll = false;
+            qualified[m] = okAll;
+            contribOut[m] = okAll ? contribs[m] : null;
+            if (okAll) qc++;
+        }
+        if (qc < 1) throw new IllegalStateException("DKG failed: no qualified dealer");
+        // member i sums the sub-shares from the QUALIFIED dealers only
         Share[] agg = new Share[n];
         for (int i = 0; i < n; i++) {
             BigInteger x = BigInteger.valueOf(i + 1), y = BigInteger.ZERO;
-            for (int m = 0; m < n; m++) {
-                Share sub = deals[m].shares[i];
-                if (!verify(sub, deals[m].commitments))
-                    throw new IllegalStateException("dealer " + m + " committed an inconsistent share (Feldman reject)");
-                y = y.add(sub.y).mod(N);
-            }
+            for (int m = 0; m < n; m++) if (qualified[m]) y = y.add(deals[m].shares[i].y).mod(N);
             agg[i] = new Share(x, y);
         }
-        // aggregate commitments: C_j = Σ_m C_{m,j} (commit to the summed polynomial)
+        // aggregate commitments over the qualified set: C_j = Σ_{m∈Q} C_{m,j}
         ECPoint[] aggC = new ECPoint[k];
         for (int j = 0; j < k; j++) {
             ECPoint acc = null;
-            for (int m = 0; m < n; m++) acc = (acc == null) ? deals[m].commitments[j] : acc.add(deals[m].commitments[j]);
+            for (int m = 0; m < n; m++) if (qualified[m]) acc = (acc == null) ? deals[m].commitments[j] : acc.add(deals[m].commitments[j]);
             aggC[j] = acc.normalize();
         }
-        return new Ceremony(k, n, contribs, agg, aggC);
+        return new Ceremony(k, n, contribOut, agg, aggC, qualified);
     }
 
     /** Map a reconstructed secret to the canonical 32-byte cluster store key (drop-in for ClusterStore.clusterSecret). */

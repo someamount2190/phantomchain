@@ -1272,10 +1272,21 @@ public class Ledger {
         proj(tx.getString("to"), m)[0] += tx.getLong("amount");
     }
 
+    /** Reject the '|' delimiter in any field that feeds a signed canonical string. Closes the (currently
+     *  unexploitable) delimiter-injection class centrally without changing the canonical format, so existing
+     *  signatures still verify and only malformed/malicious txs (no honest field carries '|') are rejected. */
+    static final String[] CANON_FIELDS = {"cid","from","to","actor","id","recipient","beneficiary","propId",
+            "param","pair","newDevice","extTxid","extAddr","custodian","voucher","candidate","chain","clusterId"};
+    static boolean canonClean(JSONObject tx) {
+        for (String key : CANON_FIELDS) { String v = tx.optString(key, null); if (v != null && v.indexOf('|') >= 0) return false; }
+        return true;
+    }
+
     /** Validate a tx against a projection map; on success apply its balance/nonce deltas. null=ok else reason. */
     String txCheck(JSONObject tx, Map<String, MLDSAPublicKeyParameters> pubById, Map<String, long[]> m) throws Exception {
         String t = tx.optString("from");
         if ("GENESIS".equals(t)) return null;
+        if (!canonClean(tx)) return "delimiter in signed field";   // anti-injection (audit NOTE-1)
         if ("SLASH".equals(t)) return verifySlash(tx, pubById) ? null : "bad slash evidence";
         if ("VOUCH".equals(t)) return verifyVouch(tx, pubById) ? null : "bad vouch";
         if ("REGISTER".equals(t)) return verifyRegister(tx) ? null : "bad register";

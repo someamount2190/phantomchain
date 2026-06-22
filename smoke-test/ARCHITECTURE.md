@@ -189,6 +189,11 @@ a JVM launch flag. A node can no longer silently fork by being started without t
   `/stateproof` inclusion proofs trustless (verifiable against the QC-committed root) instead of
   trust-the-serving-node. Opt-in per chain; empty for `"full"`, so it changes nothing for legacy chains.
   `/stateproof` is on the open read-endpoint allowlist, so light clients reach it without a peer cert.
+  **`"m1"` also makes the app-hash MANDATORY** (`requireAppHash()`): `commitBlock`/`proposalLinks` reject a
+  block that omits `prevStateRoot`/`prevShardsRoot`, closing the bypass-by-omission where `optString(...,null)`
+  silently skipped the state-root agreement check (found by `node/FuzzTest.java`). Legacy `"full"`/`"v1"`/`"v2"`
+  chains stay lenient so pre-state-root / pre-sharding historical blocks still sync; safety there is preserved
+  by deterministic re-execution, but new chains should run `"m1"` to restore the divergence tripwire.
 
 ---
 

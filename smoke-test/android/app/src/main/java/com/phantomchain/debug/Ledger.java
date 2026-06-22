@@ -62,6 +62,12 @@ public class Ledger {
     // serialization; "m1" additionally binds the authenticated account Merkle root into the state root
     // (opt-in: makes light-client account proofs trustless without changing existing chains).
     String srVersion = "full";
+    /** Hardened chains make the app-hash (prevStateRoot/prevShardsRoot) MANDATORY in every block, closing
+     *  the bypass-by-omission where optString(...,null) silently skips the check when the field is absent.
+     *  Gated on srVersion so legacy "full"/"v1"/"v2" chains (incl. the live testnet, which may hold pre-
+     *  state-root / pre-sharding historical blocks) still sync; "m1" already binds the Merkle state root, so
+     *  for it the roots must be present. (Found by node/FuzzTest.java.) */
+    boolean requireAppHash() { return "m1".equals(srVersion); }
     long totalMinted = 0;
     long burned = 0;                          // total tokens burned (fee burn + slashing) — deflationary sink
     static final int EPOCH_LEN = 3;
@@ -447,8 +453,10 @@ public class Ledger {
         String hash = PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8(preimage)));
         if (!hash.equals(b.getString("hash"))) return "rejected: bad hash";
         String psr = b.optString("prevStateRoot", null);
+        if (requireAppHash() && psr == null) return "rejected: prevStateRoot required (srVersion=" + srVersion + ")";   // no bypass-by-omission
         if (psr != null && !stateRoot().equals(psr)) return "rejected: state root mismatch";   // app-hash divergence guard
         String pshr = b.optString("prevShardsRoot", null);
+        if (requireAppHash() && pshr == null) return "rejected: prevShardsRoot required (srVersion=" + srVersion + ")";
         if (pshr != null && !shardsRoot().equals(pshr)) return "rejected: shards root mismatch";
         if (!beaconRevealValid(b)) return "rejected: bad beacon reveal";   // RANDAO: reveal must match prior commit
         int H = b.getInt("height");
@@ -641,8 +649,10 @@ public class Ledger {
         String hash = PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8(preimage)));
         if (!hash.equals(b.getString("hash"))) return false;
         String psr = b.optString("prevStateRoot", null);
+        if (requireAppHash() && psr == null) return false;           // hardened chains: app-hash is mandatory (no omission bypass)
         if (psr != null && !stateRoot().equals(psr)) return false;   // built on the same committed state
         String pshr = b.optString("prevShardsRoot", null);
+        if (requireAppHash() && pshr == null) return false;
         if (pshr != null && !shardsRoot().equals(pshr)) return false; // and the same shard commitment
         return beaconRevealValid(b);                                  // and a valid RANDAO reveal
     }

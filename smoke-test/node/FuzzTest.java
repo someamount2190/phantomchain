@@ -195,20 +195,22 @@ public class FuzzTest {
         // correctly rejected). A proposer can omit prevStateRoot to dodge the state-root cross-check.
         // Safety still holds (commitBlock re-executes every tx deterministically, so honest nodes can't be
         // forced to a divergent state, and a QC is still required), but the app-hash tripwire is defeatable.
-        Ledger Lp = genesis(5);
-        JSONObject vb = validBlock(Lp);
-        JSONObject omit = new JSONObject(vb.toString()); omit.remove("prevStateRoot"); omit.remove("prevShardsRoot");
-        boolean linksOmit = false, commitOmit = false;
-        try { linksOmit = Lp.proposalLinks(omit); } catch (Exception e) {}
-        try { commitOmit = "appended".equals(Lp.commitBlock(new JSONObject(omit.toString()), pub)); } catch (Exception e) {}
-        System.out.println("\n  ---- FINDINGS (hardening, not crashes) ----");
-        System.out.println("  [FINDING] app-hash omission: a block that OMITS prevStateRoot/prevShardsRoot "
-                + ((linksOmit || commitOmit) ? "BYPASSES the agreement check (proposalLinks=" + linksOmit + ", commitBlock=" + commitOmit + ")."
-                                             : "is rejected."));
-        if (linksOmit || commitOmit)
-            System.out.println("            -> recommend making both fields MANDATORY (reject if absent), gated on srVersion so\n"
-                + "               pre-state-root / pre-sharding historical blocks still sync. Safety is preserved by\n"
-                + "               deterministic re-execution; this restores the app-hash divergence tripwire as defense-in-depth.");
+        // legacy "full" chain: app-hash omission is still tolerated (can't retroactively require it without
+        // breaking historical-block sync). hardened "m1" chain: omission is now REJECTED (the fix).
+        Ledger Lfull = genesis(5);
+        JSONObject ofull = new JSONObject(validBlock(Lfull).toString()); ofull.remove("prevStateRoot"); ofull.remove("prevShardsRoot");
+        boolean fullOmitAccepted = false;
+        try { fullOmitAccepted = "appended".equals(Lfull.commitBlock(new JSONObject(ofull.toString()), pub)); } catch (Exception e) {}
+        Ledger Lm1 = genesis(5); Lm1.srVersion = "m1";
+        JSONObject om1 = new JSONObject(validBlock(Lm1).toString()); om1.remove("prevStateRoot"); om1.remove("prevShardsRoot");
+        boolean m1OmitLinks = true, m1OmitCommit = true;
+        try { m1OmitLinks = Lm1.proposalLinks(om1); } catch (Exception e) { m1OmitLinks = false; }
+        try { m1OmitCommit = "appended".equals(Lm1.commitBlock(new JSONObject(om1.toString()), pub)); } catch (Exception e) { m1OmitCommit = false; }
+        System.out.println("\n  ---- FINDING + FIX: app-hash bypass-by-omission ----");
+        System.out.println("  [legacy 'full'] block omitting prevStateRoot/prevShardsRoot -> " + (fullOmitAccepted ? "accepted (tolerated for historical-block sync)" : "rejected"));
+        System.out.println((!m1OmitLinks && !m1OmitCommit ? "  PASS " : "  ** FAIL ** ")
+                + "[hardened 'm1'] block omitting the app-hash is REJECTED (proposalLinks=" + m1OmitLinks + ", commitBlock=" + m1OmitCommit + ")");
+        boolean fixOk = !m1OmitLinks && !m1OmitCommit;
 
         // ---- invariants ----
         boolean noAccept = (accepted == 0);
@@ -227,7 +229,7 @@ public class FuzzTest {
                 100.0 * cleanReject / total, 100.0 * threw / total);
         System.out.println("        production HTTP handler catches (node stays up) — a candidate for stricter up-front validation.");
 
-        boolean allPass = noAccept && noAppend && noFalseTrue && stateIntact;
+        boolean allPass = noAccept && noAppend && noFalseTrue && stateIntact && fixOk;
         System.out.println("\nFuzzTest: " + (allPass ? "PASS (all safety invariants held)" : "FAIL"));
         System.exit(allPass ? 0 : 1);
     }

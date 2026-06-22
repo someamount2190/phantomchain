@@ -1439,22 +1439,42 @@ public class Ledger {
      *  then (at >= CAP_MIN_VALIDATORS live) the 10% per-validator hard cap (§9.4). */
     double weight(int idx) {
         if (idx < 0 || idx >= validators.size() || excluded(validators.get(idx))) return 0;
-        java.util.List<Integer> live = liveIdx();
-        double mine = baseWeight(idx) * coverageMultiplier(idx), total = 0;
-        for (int j : live) total += baseWeight(j) * coverageMultiplier(j);
-        if (total <= 0) return 0;
-        if (live.size() < CAP_MIN_VALIDATORS) return mine / total;   // cap vacuous -> exact prior behavior
-        Double capped = cappedShares(live).get(idx);
-        return capped == null ? 0 : capped;
+        Double w = weightMap().get(idx);
+        return w == null ? 0 : w;
     }
 
-    /** Iteratively cap each live validator's normalized weight at WEIGHT_CAP, redistributing the excess
-     *  proportionally among the still-uncapped, until stable. Deterministic (iterates the ordered live list). */
-    java.util.Map<Integer, Double> cappedShares(java.util.List<Integer> live) {
+    /** All live validators' final consensus/reward weights (base × geo, renormalized, then the 10% cap)
+     *  in ONE pass. Hot loops (proposerFor/committeeFor) must use this instead of calling weight(idx) per
+     *  validator: the old per-idx weight() re-scanned the whole live set (baseWeight + the cap) on every
+     *  call, so per-idx calls are O(n²) and the loops were O(n³). The shared sqrt/identity/region denominators are
+     *  computed once here. Bit-identical to the old per-idx weight() (same arithmetic, same live order),
+     *  so proposer/committee selection and the state root are unchanged. */
+    java.util.Map<Integer, Double> weightMap() {
+        java.util.List<Integer> live = liveIdx();
         java.util.Map<Integer, Double> w = new java.util.HashMap<>();
-        double total = 0; for (int j : live) { double v = baseWeight(j) * coverageMultiplier(j); w.put(j, v); total += v; }
-        for (int j : live) w.put(j, total > 0 ? w.get(j) / total : 0);
-        java.util.Set<Integer> capped = new java.util.HashSet<>();
+        if (live.isEmpty()) return w;
+        double sqSum = 0; long idSum = 0;                                  // denominators computed ONCE (not per validator)
+        for (int j : live) {
+            sqSum += Math.sqrt(stake.getOrDefault(validators.get(j), 0L));
+            if (verified.contains(validators.get(j))) idSum += identity.getOrDefault(validators.get(j), 0L);
+        }
+        java.util.Map<String, Long> density = new java.util.HashMap<>();   // region densities computed ONCE
+        for (int j : live) { String rg = regions.get(validators.get(j));
+            if (rg != null && !rg.isEmpty()) density.merge(rg, Math.max(1L, identity.getOrDefault(validators.get(j), 1L)), Long::sum); }
+        double total = 0;
+        for (int j : live) {
+            double stakeShare = sqSum > 0 ? Math.sqrt(stake.getOrDefault(validators.get(j), 0L)) / sqSum : 0;
+            long myId = verified.contains(validators.get(j)) ? identity.getOrDefault(validators.get(j), 0L) : 0;
+            double idShare = idSum > 0 ? (double) myId / idSum : 0;
+            String rg = regions.get(validators.get(j));
+            double cov = (rg == null || rg.isEmpty()) ? 1.0 : Math.min(GEO_MAX, 1.0 + GEO_ALPHA / (density.get(rg) + GEO_BETA));
+            double v = (0.6 * stakeShare + 0.4 * idShare) * cov;
+            w.put(j, v); total += v;
+        }
+        if (total <= 0) { for (int j : live) w.put(j, 0.0); return w; }
+        for (int j : live) w.put(j, w.get(j) / total);
+        if (live.size() < CAP_MIN_VALIDATORS) return w;                    // cap vacuous below CAP_MIN -> normalized base×geo (exact prior behavior)
+        java.util.Set<Integer> capped = new java.util.HashSet<>();         // §9.4 iterative 10% cap on the normalized map
         for (int iter = 0; iter <= live.size(); iter++) {
             double excess = 0; boolean any = false;
             for (int j : live) if (!capped.contains(j) && w.get(j) > WEIGHT_CAP + 1e-12) { excess += w.get(j) - WEIGHT_CAP; w.put(j, WEIGHT_CAP); capped.add(j); any = true; }
@@ -1498,10 +1518,11 @@ public class Ledger {
         byte[] seed = PhantomCrypto.sha3_256(PhantomCrypto.utf8(beacon + "|" + height + "|" + view));
         long s = 0; for (int i = 0; i < 8; i++) s = (s << 8) | (seed[i] & 0xffL);
         s &= Long.MAX_VALUE;
-        double total = 0; for (int idx : live) total += weight(idx);
+        java.util.Map<Integer, Double> wm = weightMap();   // computed once (was O(n²) via per-idx weight())
+        double total = 0; for (int idx : live) total += wm.getOrDefault(idx, 0.0);
         if (total <= 0) return live.get((int) (s % live.size()));
         double r = ((double) (s % 1_000_000L) / 1_000_000L) * total, c = 0;
-        for (int idx : live) { c += weight(idx); if (r < c) return idx; }
+        for (int idx : live) { c += wm.getOrDefault(idx, 0.0); if (r < c) return idx; }
         return live.get(live.size() - 1);
     }
 
@@ -1515,7 +1536,8 @@ public class Ledger {
         if (k <= 0 || live.size() <= k) return live;
         java.util.List<Integer> pool = new ArrayList<>(live);
         java.util.List<Long> w = new ArrayList<>();
-        for (int idx : pool) w.add(Math.max(1L, Math.round(weight(idx) * 1_000_000_000L)));   // integer weights = deterministic
+        java.util.Map<Integer, Double> wm = weightMap();   // computed once (was O(n²) via per-idx weight())
+        for (int idx : pool) w.add(Math.max(1L, Math.round(wm.getOrDefault(idx, 0.0) * 1_000_000_000L)));   // integer weights = deterministic
         java.util.List<Integer> sel = new ArrayList<>();
         for (int seat = 0; seat < k && !pool.isEmpty(); seat++) {
             long total = 0; for (long x : w) total += x;

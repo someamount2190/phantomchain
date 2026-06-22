@@ -16,6 +16,7 @@ import org.json.JSONObject;
  */
 public class NodeConfig {
     public int rpcPort = 9090;
+    public int readPort = 0;   // 0 => rpcPort+1. Open READ port: server-auth TLS, NO client cert required.
     public String selfAddr = "127.0.0.1:9090";   // host:port other nodes use to reach THIS node (public IP in prod)
     public List<String> seeds = new ArrayList<>();// host:port of bootstrap peers (membership is then learned)
     public String dataDir = "pcdata";             // chain.json, votes.json, certs/ live here
@@ -26,6 +27,7 @@ public class NodeConfig {
         JSONObject o = new JSONObject(new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8));
         NodeConfig c = new NodeConfig();
         c.rpcPort = o.optInt("rpcPort", 9090);
+        c.readPort = o.optInt("readPort", 0);
         c.selfAddr = o.optString("selfAddr", "127.0.0.1:" + c.rpcPort);
         c.dataDir = o.optString("dataDir", "pcdata");
         c.keyFile = o.optString("keyFile", "node.key");

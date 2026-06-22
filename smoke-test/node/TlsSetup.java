@@ -34,7 +34,8 @@ import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
  *  - key exchange uses BouncyCastle JSSE so the hybrid PQ group X25519MLKEM768 can be offered
  *    (falls back to JDK SunJSSE classical TLS 1.3 if BCJSSE/group is unavailable).
  * Message-level authenticity is already provided by ML-DSA signatures, so this gives a fully
- * authenticated + encrypted channel. (mTLS is a one-flag upgrade: require client auth + node certs.)
+ * authenticated + encrypted channel. (mTLS client-auth is wired in NetNode by overriding
+ * getServerSocketFactory() to setNeedClientAuth — NanoHTTPD's makeSecure() resets it to false.)
  */
 public class TlsSetup {
     static final char[] PASS = "phantomchain".toCharArray();

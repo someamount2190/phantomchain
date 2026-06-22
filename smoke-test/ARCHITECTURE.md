@@ -133,8 +133,13 @@ proposer-legitimacy check + state-root agreement.
 ## 6. Networking & transport (`NetNode`)
 
 - **Transport:** TLS 1.3 over a per-cluster EC CA (`TlsSetup`); CA retained (`ca.p12`) for validator
-  onboarding. (mTLS client-auth is the documented next hardening; today server-auth + message-layer
-  ML-DSA + op-token.)
+  onboarding. **mTLS client-auth is enforced on the PEER port** (`rpcPort`) by overriding
+  `getServerSocketFactory()` to `setNeedClientAuth(true)` — NanoHTTPD 2.3.1's `makeSecure()` hard-resets it
+  to false in `SecureServerSocketFactory.create()` (verified in the bytecode), so the override is required.
+  A separate **OPEN READ port** (`readPort` = `rpcPort+1`) runs server-auth TLS (no client cert) and serves
+  only the read-only allowlist (`READ_ENDPOINTS`), preserving the open read-endpoints split; writes /
+  consensus / gossip stay on the mTLS peer port (`MtlsTest` 4/4 + `ReadPeerSplitTest` 6/6). Message-layer
+  ML-DSA + op-token remain.
 - **Discovery:** seed → `/announce` (**signed** by the validator's key, anti-eclipse) → `/peers` gossip.
 - **Replication:** `/gossip/tx`, `/vote`, `/commit`, `/gossip/vote`, `/gossip/slash`; `/sync` pulls blocks
   block-by-block (verifyQC each).
@@ -170,7 +175,7 @@ proposer-legitimacy check + state-root agreement.
 | Sybil resistance / one-person-one-identity | 🟡 soft (social vouch; OPEN-ID-01) |
 | Threshold signature / aggregate QC | 🟡 multisig (no PQ threshold lib) |
 | Unbiasable leader election | ✅ commit-reveal RANDAO beacon (residual: 1-bit last-revealer bias) |
-| Transport peer-auth | 🟡 server-TLS + signed-announce + op-token (mTLS pending) |
+| Transport peer-auth | ✅ mTLS on the peer port + open server-auth read port (`readPort`); `MtlsTest` 4/4 + `ReadPeerSplitTest` 6/6 |
 
 ---
 

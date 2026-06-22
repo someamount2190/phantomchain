@@ -34,12 +34,11 @@ import org.bouncycastle.pqc.crypto.mldsa.MLDSAPublicKeyParameters;
  */
 public class NetNode extends NanoHTTPD {
 
-    static int N;                  // validator count, from genesis
-    static int QUORUM;             // N/2 + 1
+    int N;                         // validator count (per-node view; grows as this node processes joins)
     static final long VIEW_TIMEOUT = 3000L;
     static final long TICK = 700L;
 
-    static String[] VAL_IDS;       // validator ids, by genesis position
+    String[] VAL_IDS;              // validator ids by position (per-node view, tracks N)
     static final Map<String, MLDSAPublicKeyParameters> PUB_BY_ID = new HashMap<>();
     static Genesis GEN;            // the chain definition (validator set), loaded once per process
     static final Map<String, String> GEN_VALPUBS = new HashMap<>();   // genesis id -> pubkey hex (seeds ledger.valPubs)
@@ -80,12 +79,7 @@ public class NetNode extends NanoHTTPD {
     static synchronized void initFromGenesis(Genesis gen) {
         if (GEN != null) return;
         GEN = gen;
-        N = gen.validators.size();
-        QUORUM = N - (N - 1) / 3;   // BFT: tolerate f=floor((N-1)/3) Byzantine; two quorums overlap in >=f+1 (>=1 honest)
-        VAL_IDS = new String[N];
-        for (int i = 0; i < N; i++) {
-            Genesis.Validator v = gen.validators.get(i);
-            VAL_IDS[i] = v.id;
+        for (Genesis.Validator v : gen.validators) {   // process-global identity material (append-only, same for every node)
             PUB_BY_ID.put(v.id, new MLDSAPublicKeyParameters(MLDSAParameters.ml_dsa_65, PhantomCrypto.unhex(v.pubkeyHex)));
             GEN_VALPUBS.put(v.id, v.pubkeyHex);
         }
@@ -94,6 +88,9 @@ public class NetNode extends NanoHTTPD {
     NetNode(Genesis gen, NodeConfig cfg, MLDSAPrivateKeyParameters key) throws Exception {
         super(cfg.rpcPort);
         initFromGenesis(gen);
+        this.N = gen.validators.size();                // per-node validator view (so in-process nodes don't share one)
+        this.VAL_IDS = new String[N];
+        for (int i = 0; i < N; i++) this.VAL_IDS[i] = gen.validators.get(i).id;
         this.key = key;
         this.id = PhantomCrypto.hex(PhantomCrypto.sha3_256(key.getPublicKeyParameters().getEncoded()));
         this.index = gen.indexOfId(this.id);   // -1 if not a genesis validator -> runs as observer until it joins

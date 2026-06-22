@@ -1132,7 +1132,16 @@ public class Ledger {
         for (String id : sortedAccountIds()) { Account a = accounts.get(id); ls.add(accountLeaf(id, a.balance, a.nonce)); }
         return ls;
     }
-    String accountsMerkleRoot() { return PhantomCrypto.hex(merkleRoot(accountLeaves())); }
+    /** Root = SHA3("amr|count|innerRoot"). Binding the leaf COUNT defeats the CVE-2012-2459 duplicate-last
+     *  forgery, where odd-node duplication lets a different leaf set ([A,B,C] vs [A,B,C,C]) share the raw
+     *  inner root; the count makes those roots differ. */
+    static byte[] boundMerkleRoot(int count, byte[] inner) {
+        return PhantomCrypto.sha3_256(PhantomCrypto.utf8("amr|" + count + "|" + PhantomCrypto.hex(inner)));
+    }
+    String accountsMerkleRoot() {
+        java.util.List<byte[]> leaves = accountLeaves();
+        return PhantomCrypto.hex(boundMerkleRoot(leaves.size(), merkleRoot(leaves)));
+    }
 
     /** Interior node = SHA3(0x01 ‖ left ‖ right); the 0x01 prefix domain-separates interior nodes from
      *  leaves (which are SHA3 of a "acctleaf|"-tagged preimage), preventing second-preimage/leaf-as-node attacks. */
@@ -1187,16 +1196,18 @@ public class Ledger {
         return new JSONObject().put("present", true).put("id", id)
                 .put("balance", a.balance).put("nonce", a.nonce)
                 .put("index", idx).put("count", ids.size())
-                .put("siblings", sibs).put("root", PhantomCrypto.hex(merkleRoot(leaves)));
+                .put("siblings", sibs).put("root", accountsMerkleRoot());   // count-bound root
     }
     /** Stateless verification of an account proof (a light client runs exactly this against a trusted root). */
     static boolean verifyAccountProof(JSONObject p) {
         if (p == null || !p.optBoolean("present", false)) return false;
-        byte[] leaf = accountLeaf(p.getString("id"), p.getLong("balance"), p.getLong("nonce"));
+        int idx = p.getInt("index"), count = p.getInt("count");
+        if (idx < 0 || idx >= count) return false;                 // reject a duplicated/out-of-range position
+        byte[] h = accountLeaf(p.getString("id"), p.getLong("balance"), p.getLong("nonce"));
         JSONArray sa = p.getJSONArray("siblings");
-        java.util.List<byte[]> sibs = new ArrayList<>();
-        for (int i = 0; i < sa.length(); i++) sibs.add(PhantomCrypto.unhex(sa.getString(i)));
-        return merkleVerify(leaf, p.getInt("index"), sibs, PhantomCrypto.unhex(p.getString("root")));
+        int i = idx;
+        for (int j = 0; j < sa.length(); j++) { byte[] s = PhantomCrypto.unhex(sa.getString(j)); h = (i % 2 == 0) ? merkleNode(h, s) : merkleNode(s, h); i /= 2; }
+        return PhantomCrypto.hex(boundMerkleRoot(count, h)).equals(p.getString("root"));   // climb -> inner -> bind count
     }
 
     // ===== state sharding: per-id state partitioned into SHARDS, each independently rooted =====

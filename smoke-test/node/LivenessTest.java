@@ -127,7 +127,7 @@ public class LivenessTest {
             int pn = L.proposerFor(L.lastHash(), L.chain.size(), 0);
             JSONArray withT = new JSONArray(); for (JSONObject t : L.mempool) withT.put(t);
             boolean included = commit(L, mk(L, pn, 0, withT, all(5), 2));
-            boolean applied = (L.balanceOf(ids[3]) == before + 777);
+            boolean applied = (L.balanceOf(ids[3]) >= before + 777);   // >= : if pn==recipient it also collects the +1 proposer fee
             ok("L3a a censoring proposer CAN omit a pending tx from its own block", censoredCommitted && stillPending);
             ok("L3b the censored tx survives and the NEXT proposer commits it (censorship-resistant)", included && applied);
         }

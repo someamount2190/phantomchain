@@ -85,6 +85,16 @@ public class TimestampTest {
             + "  bound in commitBlock/proposalLinks, gated on srVersion for backward-compat.");
         ok("T2 (control) the finding is reproducible: an arbitrary-ts block commits today", anyArbitraryAccepted);
 
+        // T3/T4 — the FIX on a hardened ("m1") chain: ts must be non-DECREASING (deterministic, no wall-clock)
+        {
+            Ledger Lm = genesis(5); Lm.srVersion = "m1";
+            boolean c1   = commit(Lm, mk(Lm, 1700000010000L));   // ts = 10000
+            boolean cEq  = commit(Lm, mk(Lm, 1700000010000L));   // equal ts -> allowed (fast/equal-ms blocks)
+            boolean cBack = commit(Lm, mk(Lm, 1700000005000L));  // earlier ts -> rejected
+            ok("T3 [m1 FIX] a non-monotonic (decreasing) ts block is rejected on a hardened chain", c1 && !cBack);
+            ok("T4 [m1] an equal timestamp is allowed (non-decreasing rule won't false-reject fast blocks)", cEq);
+        }
+
         System.out.println("\n==== TimestampTest: " + pass + " passed, " + fail + " failed ====");
         System.exit(fail == 0 ? 0 : 1);
     }

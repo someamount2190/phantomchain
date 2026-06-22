@@ -71,12 +71,26 @@ public class MempoolDosTest {
         for (int i = 0; i < 50; i++) if (accepted(L4, L4.buildTxProjected(ids[0], ids[1], 1, 1, keys[0]))) admitted++;
         ok("D5 dust (amount=1, fee=MIN) is admitted but each pays the floor fee (admitted " + admitted + "/50, all fee>=MIN)", admitted == 50);
 
+        // D6 — engine-enforced block-size cap on a hardened ("m1") chain (the fix for the observation below)
+        Ledger Lm = genesis(5); Lm.srVersion = "m1";
+        JSONArray big = new JSONArray();
+        for (int i = 0; i <= Ledger.MAX_BLOCK_TXS; i++) big.put(new JSONObject().put("x", i));   // MAX_BLOCK_TXS + 1 txs
+        int h = Lm.chain.size(); String prev = Lm.lastHash(); int p = Lm.proposerFor(prev, h, 0); long ts = 1700000001000L;
+        String hash = PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8("pc-dos|" + h + "|" + prev + "|" + big + "|" + ts)));
+        JSONObject blkBig = new JSONObject().put("height", h).put("prevHash", prev).put("txs", big).put("ts", ts)
+                .put("hash", hash).put("proposer", p).put("view", 0)
+                .put("prevStateRoot", Lm.stateRoot()).put("prevShardsRoot", Lm.shardsRoot())
+                .put("reveal", PhantomCrypto.hex(Ledger.beaconSecretFor(keys[p].getEncoded(), 0)))
+                .put("commit", PhantomCrypto.hex(PhantomCrypto.sha3_256(Ledger.beaconSecretFor(keys[p].getEncoded(), 1))));
+        String res = Lm.commitBlock(blkBig, pub);
+        ok("D6 [m1 FIX] a block exceeding MAX_BLOCK_TXS is rejected by the ENGINE, not just transport (" + res + ")",
+                res.contains("exceeds MAX_BLOCK_TXS"));
+
         // ---- OBSERVATION (reported, not a pass/fail) ----
-        System.out.println("\n  [OBSERVATION] commitBlock has no independent tx-count cap — it validates every tx in an\n"
-            + "  incoming block. The DoS bound on an oversized block is the transport layer's 1 MiB body limit\n"
-            + "  (NetNode.body), not the engine. Honest proposers cap at MAX_BLOCK_TXS (verified in D4); a Byzantine\n"
-            + "  proposer's block is bounded by the 1 MiB cap. Adding an explicit txs.length()<=MAX_BLOCK_TXS check\n"
-            + "  in commitBlock/proposalLinks would make the bound engine-enforced rather than transport-dependent.");
+        System.out.println("\n  [NOTE] Hardened (\"m1\") chains now enforce txs.length()<=MAX_BLOCK_TXS in the engine\n"
+            + "  (commitBlock + proposalLinks), verified in D6 — the oversized-block DoS bound no longer depends\n"
+            + "  only on the transport 1 MiB body limit. Legacy \"full\" chains keep transport-only bounding for\n"
+            + "  backward-compat with historical blocks.");
 
         System.out.println("\n==== MempoolDosTest: " + pass + " passed, " + fail + " failed ====");
         System.exit(fail == 0 ? 0 : 1);

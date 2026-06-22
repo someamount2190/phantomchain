@@ -452,6 +452,10 @@ public class Ledger {
                 + b.getJSONArray("txs").toString() + "|" + b.getLong("ts");
         String hash = PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8(preimage)));
         if (!hash.equals(b.getString("hash"))) return "rejected: bad hash";
+        if (requireAppHash()) {   // hardened-chain bounds (deterministic; found by MempoolDosTest/TimestampTest)
+            if (b.getJSONArray("txs").length() > MAX_BLOCK_TXS) return "rejected: block exceeds MAX_BLOCK_TXS";   // engine-enforced DoS cap (not just transport)
+            if (b.getLong("ts") < chain.get(chain.size() - 1).optLong("ts", 0)) return "rejected: non-monotonic ts";   // ts >= prev (no wall-clock -> deterministic)
+        }
         String psr = b.optString("prevStateRoot", null);
         if (requireAppHash() && psr == null) return "rejected: prevStateRoot required (srVersion=" + srVersion + ")";   // no bypass-by-omission
         if (psr != null && !stateRoot().equals(psr)) return "rejected: state root mismatch";   // app-hash divergence guard
@@ -648,6 +652,10 @@ public class Ledger {
                 + b.getJSONArray("txs").toString() + "|" + b.getLong("ts");
         String hash = PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8(preimage)));
         if (!hash.equals(b.getString("hash"))) return false;
+        if (requireAppHash()) {   // hardened-chain bounds (mirror commitBlock so voters reject these too)
+            if (b.getJSONArray("txs").length() > MAX_BLOCK_TXS) return false;
+            if (b.getLong("ts") < chain.get(chain.size() - 1).optLong("ts", 0)) return false;
+        }
         String psr = b.optString("prevStateRoot", null);
         if (requireAppHash() && psr == null) return false;           // hardened chains: app-hash is mandatory (no omission bypass)
         if (psr != null && !stateRoot().equals(psr)) return false;   // built on the same committed state

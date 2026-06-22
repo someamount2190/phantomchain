@@ -32,4 +32,14 @@ public class ClusterStore {
         byte[] ct = ReedSolomon.join(new ReedSolomon(k, n).decode(shards, present, len));
         return PhantomCrypto.aead(false, storeKey(clusterSecret), storeNonce(clusterSecret, version), ct);   // AEAD verifies integrity + key
     }
+
+    /** Reconstruct the cluster store key from a DKG ceremony using any k present member shares.
+     *  The key is never stored on one device — it is reconstructed from k shares each time the
+     *  cluster must seal or rotate (see {@link Dkg}). Returns the 32-byte clusterSecret that
+     *  {@link #shard}/{@link #reconstruct} consume. */
+    public static byte[] clusterSecretFromCeremony(Dkg.Ceremony cy, int[] presentMembers) {
+        Dkg.Share[] shares = new Dkg.Share[presentMembers.length];
+        for (int j = 0; j < presentMembers.length; j++) shares[j] = cy.shares[presentMembers[j]];
+        return Dkg.storeKeyFromSecret(Dkg.combine(shares));
+    }
 }

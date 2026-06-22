@@ -85,8 +85,14 @@ needs significant infra and, in places, the Tier-3 research primitives.
     partition (ChaCha20-Poly1305) then RS(k,n)-erasure-codes the ciphertext into one shard per member device;
     any k members reconstruct, fewer cannot, and every shard is a ciphertext fragment — useless alone.
     `node/ClusterStoreTest.java` 9/9 (2-of-3: any 2 reconstruct, 1 can't + leaks no plaintext, wrong-key/
-    tampered shard rejected, versioned nonces). DKG so the cluster key is never assembled on one device is
-    the documented frontier (same trust-boundary note as the bridge custodian set).
+    tampered shard rejected, versioned nonces). DKG so the cluster key is never assembled on one device is now
+    **DONE + VERIFIED** (`node/Dkg.java`: Shamir secret sharing + Feldman VSS over P-256; the N-member ceremony
+    sums per-dealer polynomials so the aggregate secret is known to no single device, every share is verifiable
+    against its commitments, and k-of-N reconstructs it ephemerally — `DkgTest` 13/13; wired into the store via
+    `ClusterStore.clusterSecretFromCeremony` in `ClusterStoreDkgTest` 6/6 so the key is reconstructed from k
+    shares and never stored on one device). **Honest residual:** the key IS reconstructed inside a cooperating
+    k-of-N quorum at use-time (transiently); true threshold-encryption that never reconstructs is the deeper
+    frontier — same honest-interim stance as the consensus QC.
   - **Per-cluster 10% weight cap (§9.4) + collapse/disband (§9.7): BUILT + VERIFIED.** `weight()` caps any
     single validator (incl. a cluster) at 10% of network weight, redistributing the excess — engaged at
     scale, **provably INERT below 10 validators** so the live testnet (N=4) and local nets are bit-identical
@@ -97,8 +103,8 @@ needs significant infra and, in places, the Tier-3 research primitives.
     the M-of-N bundle is the interim, not a threshold sig. Host note: only one emulator runs stably alongside
     the desktop coordinator (saturation), so the live device demo is 1 device + 2 desktop members; the
     coordinator accepts N device endpoints. **Cluster mining model: functionally complete** (state machine,
-    live consensus, real-device participation, intra-cluster storage, weight cap, collapse); remaining items
-    are the threshold-sig research primitive and DKG for the cluster key.
+    live consensus, real-device participation, intra-cluster storage, weight cap, collapse); the remaining
+    item is the threshold-sig research primitive (DKG for the cluster key is now DONE — §9.3).
 - **Cross-chain bridge / external tx layer** (Doc C): **DONE end-to-end via existing engineering.** On-chain:
   custodian M-of-N set, BRIDGE_RESERVE, SHAKE-256 ext-addresses (`/extaddr`), `BRIDGE_OUT` (lock) + `BRIDGE_IN`
   (M-of-N attested release, replay guard) + `ORACLE` (median-of-custodian rate feed). **Off-chain custodian

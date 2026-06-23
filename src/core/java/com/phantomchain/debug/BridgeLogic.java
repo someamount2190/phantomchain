@@ -45,4 +45,12 @@ final class BridgeLogic {
         if (!pub.equals(l.custodians.get(cust))) return false;   // only registered custodians may post rates
         return PhantomCrypto.verify(Ledger.pk(pub), PhantomCrypto.utf8("oracle|" + l.chainId + "|" + tx.getString("pair") + "|" + tx.getLong("rate")), PhantomCrypto.unhex(tx.getString("sig")));
     }
+
+    /** Current price = median of custodian-attested rates for a pair (manipulation-resistant). */
+    static long oracleMedian(Ledger l, String pair) {
+        java.util.Map<String, Long> rs = l.oracleRates.get(pair);
+        if (rs == null || rs.isEmpty()) return 0;
+        java.util.List<Long> v = new java.util.ArrayList<>(rs.values()); java.util.Collections.sort(v);
+        return v.get(v.size() / 2);
+    }
 }

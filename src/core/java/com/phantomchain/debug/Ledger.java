@@ -752,22 +752,7 @@ public class Ledger {
 
     /** Credit an epoch-reward share to a validator. For a cluster the share is split DIRECTLY and equally
      *  among its member identities (spec §9.6 — no operator intermediary); remainder to the first members. */
-    void creditEarner(String valId, long share) throws Exception {
-        if (share <= 0) return;
-        JSONObject c = clusters.get(valId);
-        if (c != null) {
-            JSONArray ms = c.getJSONArray("members"); int n = ms.length();
-            long per = share / n, rem = share - per * n;
-            for (int i = 0; i < n; i++) {
-                String mid = ms.getString(i); long amt = per + (i < rem ? 1 : 0);
-                Account a = accounts.get(mid); if (a == null) { a = new Account(); accounts.put(mid, a); }
-                a.balance += amt;
-            }
-        } else {
-            Account a = accounts.get(valId); if (a == null) { a = new Account(); accounts.put(valId, a); }
-            a.balance += share;
-        }
-    }
+    void creditEarner(String valId, long share) throws Exception { EconomicsLogic.creditEarner(this, valId, share); }
 
     // ===== cross-chain bridge (on-chain side) =====
     static String extAddr(String chain, String pubHex) {
@@ -801,21 +786,8 @@ public class Ledger {
         return new JSONObject().put("from", "ORACLE").put("custodian", custodianId).put("pub", pub).put("pair", pair).put("rate", rate).put("cid", chainId).put("sig", PhantomCrypto.hex(sig));
     }
     /** Current price = median of custodian-attested rates for a pair (manipulation-resistant). */
-    long oracleMedian(String pair) {
-        Map<String, Long> rs = oracleRates.get(pair);
-        if (rs == null || rs.isEmpty()) return 0;
-        java.util.List<Long> v = new ArrayList<>(rs.values()); java.util.Collections.sort(v);
-        return v.get(v.size() / 2);
-    }
-
-    /** Live token supply: liquid balances + bonded stake + tokens mid-unbond. */
-    long circulatingSupply() {
-        long s = 0;
-        for (Account a : accounts.values()) s += a.balance;
-        for (long v : stake.values()) s += v;
-        for (JSONObject u : unbonding) s += u.optLong("amount", 0);
-        return s;
-    }
+    long oracleMedian(String pair) { return BridgeLogic.oracleMedian(this, pair); }
+    long circulatingSupply() { return EconomicsLogic.circulatingSupply(this); }
 
     /** Deterministic hash of all consensus-relevant state (canonical: sorted maps). Committed in each
      *  block header as the post-state of the PREVIOUS block (Tendermint-style app hash), so any
@@ -1023,40 +995,7 @@ public class Ledger {
     int committeeQuorum(int height) { return ValidatorSelection.committeeQuorum(this, height); }
 
     /** Decaying emission: blockReward halved once per halvingBlocks. Deterministic, capped by maxSupply. */
-    long blockRewardAt(int height) {
-        if (height <= 0) return 0;
-        int halvings = halvingBlocks > 0 ? (height - 1) / halvingBlocks : 0;
-        if (halvings > 62) return 0;
-        return blockReward >> halvings;
-    }
-
-    /** At each epoch boundary, mint emission (decaying curve, supply-capped) and split by on-chain
-     *  contribution (QC sigs + proposer bonus). */
-    void maybeEpochReward() throws Exception {
-        int h = chain.size() - 1;
-        if (h < 1 || h % EPOCH_LEN != 0) return;
-        Map<String, Long> units = new HashMap<>();
-        long pool = 0;
-        for (int hi = h - EPOCH_LEN + 1; hi <= h; hi++) {
-            pool += blockRewardAt(hi);
-            JSONObject blk = chain.get(hi);
-            int prop = blk.optInt("proposer", -1);
-            if (prop >= 0 && prop < validators.size()) units.merge(validators.get(prop), (long) PROPOSER_BONUS, Long::sum);
-            JSONArray qc = blk.optJSONArray("qc");
-            if (qc != null) for (int k = 0; k < qc.length(); k++) {
-                int si = qc.getJSONObject(k).getInt("i");
-                if (si >= 0 && si < validators.size()) units.merge(validators.get(si), 1L, Long::sum);
-            }
-        }
-        if (totalMinted + pool > maxSupply) pool = Math.max(0, maxSupply - totalMinted);   // emission cap
-        long totalU = 0; for (long u : units.values()) totalU += u;
-        if (totalU <= 0 || pool <= 0) return;
-        long distributed = 0;
-        for (Map.Entry<String, Long> e : units.entrySet()) {
-            long share = pool * e.getValue() / totalU;
-            creditEarner(e.getKey(), share);   // cluster shares fan out directly to member identities (§9.6)
-            distributed += share;
-        }
-        totalMinted += distributed;
-    }
+    // monetary policy (emission / epoch rewards / supply) — impl in EconomicsLogic.
+    long blockRewardAt(int height) { return EconomicsLogic.blockRewardAt(this, height); }
+    void maybeEpochReward() throws Exception { EconomicsLogic.maybeEpochReward(this); }
 }

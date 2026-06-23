@@ -183,7 +183,7 @@ public class NetNode extends NanoHTTPD {
                 + (TlsSetup.hybrid ? "BCJSSE, PQ-hybrid X25519MLKEM768 offered" : "JDK TLSv1.3")
                 + ") seeds=" + seeds + " persistedVotes=" + votedAt.size());
         new Thread(this::discoveryLoop, "disc-" + index).start();
-        new Thread(this::consensusLoop, "cons-" + index).start();
+        new Thread(consensus::loop, "cons-" + index).start();
     }
 
     /** mTLS server socket: a peer MUST present a node cert signed by the cluster CA. We override the
@@ -654,68 +654,8 @@ public class NetNode extends NanoHTTPD {
         }
     }
 
-    // ---- consensus with view-change (skips slashed proposers) ----
-    void consensusLoop() {
-        long workStart = 0; int workHeight = -1; String lastKey = null;
-        while (running) {
-            try { Thread.sleep(TICK); } catch (InterruptedException e) { return; }
-            syncValidatorSet();   // refresh validator set / promote self after a VALJOIN commits
-            int h; boolean hasWork;
-            synchronized (ledger) { h = ledger.chain.size(); hasWork = !ledger.mempool.isEmpty(); }
-            if (!hasWork) { workHeight = -1; lastKey = null; continue; }
-            long now = System.currentTimeMillis();
-            if (workHeight != h) { workHeight = h; workStart = now; lastKey = null; }
-            int view = (int) ((now - workStart) / VIEW_TIMEOUT);
-            int proposer;
-            try { synchronized (ledger) { proposer = ledger.proposerFor(ledger.lastHash(), h, view); } }
-            catch (Exception e) { continue; }
-            if (index >= 0 && proposer == index && !isSlashed(index)) {
-                String k = h + ":" + view;
-                if (!k.equals(lastKey)) { lastKey = k; try { doRound(h, view); } catch (Exception e) { } }
-            }
-        }
-    }
-
-    void doRound(int h, int view) throws Exception {
-        JSONObject blk; String hash;
-        synchronized (ledger) {
-            if (ledger.chain.size() != h || ledger.mempool.isEmpty()) return;
-            blk = ledger.buildProposal(index, System.currentTimeMillis());
-            blk.put("view", view);
-            blk.put("reveal", beaconReveal()).put("commit", beaconCommit());   // RANDAO: reveal prior secret, commit next
-            hash = blk.getString("hash");
-            JSONObject prevVote = votedAt.get(h);
-            if (prevVote != null && !prevVote.getString("hash").equals(hash)) return;   // already voted a different block at this height: never self-equivocate (was causing false slashing on view-change)
-            JSONObject myVote = new JSONObject().put("valId", id).put("height", h).put("hash", hash).put("sig", PhantomCrypto.hex(voteSig(hash)));
-            votedAt.put(h, myVote); saveVotes();
-            recordVote(myVote); gossipVote(myVote);
-        }
-        if (view > 0) System.out.println("node" + index + " VIEW-CHANGE proposing height=" + h + " view=" + view);
-        // only the beacon-sortitioned committee signs (full set when committeeSize=0) -> QC carries committee sigs only
-        java.util.Set<Integer> committee; int needed;
-        synchronized (ledger) { committee = new HashSet<>(ledger.committeeFor(h)); needed = ledger.committeeQuorum(h); }
-        JSONArray qc = new JSONArray();
-        if (committee.contains(index)) qc.put(new JSONObject().put("i", index).put("sig", PhantomCrypto.hex(voteSig(hash))));
-        for (int j = 0; j < N && qc.length() < needed; j++) {
-            if (j == index || !committee.contains(j)) continue; String addr = peers.get(j); if (addr == null) continue;
-            String r = httpPost(addr, "/vote", blk.toString());
-            if (r != null) { try { JSONObject v = new JSONObject(r.trim()); if (v.has("sig")) qc.put(v); } catch (Exception e) { } }
-        }
-        blk.put("qc", qc);
-        boolean committed = false;
-        synchronized (ledger) {
-            if (ledger.chain.size() != h) return;
-            if (!verifyQC(blk)) return;
-            seenBlock.add(hash);
-            if ("appended".equals(ledger.commitBlock(blk, PUB_BY_ID))) { save(); committed = true; beaconCtr++; saveVotes(); }
-        }
-        if (committed) {
-            StringBuilder sg = new StringBuilder();
-            for (int i = 0; i < qc.length(); i++) { sg.append(qc.getJSONObject(i).getInt("i")); if (i < qc.length() - 1) sg.append(","); }
-            System.out.println("node" + index + " committed height=" + h + " view=" + view + " signers=[" + sg + "]");
-            for (int j = 0; j < N; j++) { if (j == index) continue; String a = peers.get(j); if (a != null) httpPost(a, "/commit", blk.toString()); }
-        }
-    }
+    // consensus algorithm (proposer loop + round) — impl in Consensus.
+    final Consensus consensus = new Consensus(this);
 
     void syncFromPeers() {
         for (int j = 0; j < N; j++) {
@@ -743,33 +683,7 @@ public class NetNode extends NanoHTTPD {
     void gossipTx(String body) { for (int j = 0; j < N; j++) { if (j == index) continue; String a = peers.get(j); if (a != null) httpPost(a, "/gossip/tx", body); } }
     void gossipVote(JSONObject v) { for (int j = 0; j < N; j++) { if (j == index) continue; String a = peers.get(j); if (a != null) httpPost(a, "/gossip/vote", v.toString()); } }
 
-    javax.net.ssl.HttpsURLConnection https(String addr, String path) throws Exception {
-        javax.net.ssl.HttpsURLConnection c = (javax.net.ssl.HttpsURLConnection) new java.net.URL("https://" + addr + path).openConnection();
-        c.setSSLSocketFactory(tls.getSocketFactory());
-        c.setHostnameVerifier((h, s) -> true);   // trust is via the cluster CA, not hostname
-        c.setConnectTimeout(3000); c.setReadTimeout(3000);
-        return c;
-    }
-    String httpPost(String addr, String path, String body) {
-        javax.net.ssl.HttpsURLConnection c = null;
-        try {
-            c = https(addr, path);
-            c.setRequestMethod("POST"); c.setDoOutput(true);
-            c.setRequestProperty("Content-Type", "application/json");
-            c.getOutputStream().write(body.getBytes(StandardCharsets.UTF_8)); c.getOutputStream().flush();
-            return readAll(c.getInputStream());
-        } catch (Exception e) { return null; } finally { if (c != null) c.disconnect(); }
-    }
-    String httpGet(String addr, String path) {
-        javax.net.ssl.HttpsURLConnection c = null;
-        try {
-            c = https(addr, path);
-            return readAll(c.getInputStream());
-        } catch (Exception e) { return null; } finally { if (c != null) c.disconnect(); }
-    }
-    static String readAll(InputStream is) throws Exception {
-        ByteArrayOutputStream bo = new ByteArrayOutputStream(); byte[] buf = new byte[4096]; int n;
-        while ((n = is.read(buf)) > 0) bo.write(buf, 0, n); is.close();
-        return new String(bo.toByteArray(), StandardCharsets.UTF_8);
-    }
+    // peer HTTP client — impl in NetHttp; thin delegators keep the consensus/gossip/sync call sites unchanged.
+    String httpPost(String addr, String path, String body) { return NetHttp.post(tls, addr, path, body); }
+    String httpGet(String addr, String path) { return NetHttp.get(tls, addr, path); }
 }

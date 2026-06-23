@@ -556,10 +556,7 @@ public class Ledger {
             verified.add(cand);
     }
 
-    public JSONObject buildVouchTx(String voucher, String candidate, MLDSAPrivateKeyParameters key) throws Exception {
-        byte[] sig = PhantomCrypto.sign(key, PhantomCrypto.utf8("vouch|" + chainId + "|" + candidate));
-        return new JSONObject().put("from", "VOUCH").put("voucher", voucher).put("candidate", candidate).put("cid", chainId).put("sig", PhantomCrypto.hex(sig));
-    }
+    public JSONObject buildVouchTx(String voucher, String candidate, MLDSAPrivateKeyParameters key) throws Exception { return TxFactory.buildVouchTx(this, voucher, candidate, key); }
 
     boolean verifyVouch(JSONObject tx, Map<String, MLDSAPublicKeyParameters> pubById) throws Exception {
         String voucher = tx.getString("voucher"), candidate = tx.getString("candidate");
@@ -607,36 +604,15 @@ public class Ledger {
         return null;   // pub is not (or no longer) an authorized device of this identity
     }
 
-    public JSONObject buildRegisterTx(MLDSAPrivateKeyParameters rootKey, MLDSAPrivateKeyParameters deviceKey) throws Exception {
-        String root = PhantomCrypto.hex(rootKey.getPublicKeyParameters().getEncoded());
-        String device = PhantomCrypto.hex(deviceKey.getPublicKeyParameters().getEncoded());
-        byte[] sig = PhantomCrypto.sign(rootKey, PhantomCrypto.utf8("register|" + chainId + "|" + root + "|" + device));
-        return new JSONObject().put("from", "REGISTER").put("root", root).put("device", device).put("cid", chainId).put("sig", PhantomCrypto.hex(sig));
-    }
-    public JSONObject buildRotateTx(String id, MLDSAPrivateKeyParameters rootKey, String newDevice, long rotNonce) throws Exception {
-        byte[] sig = PhantomCrypto.sign(rootKey, PhantomCrypto.utf8("rotate|" + chainId + "|" + id + "|" + newDevice + "|" + rotNonce));
-        return new JSONObject().put("from", "ROTATE").put("id", id).put("newDevice", newDevice).put("rotNonce", rotNonce).put("cid", chainId).put("sig", PhantomCrypto.hex(sig));
-    }
-    JSONObject buildSetGuardiansTx(String id, MLDSAPrivateKeyParameters rootKey, JSONArray guardians, int threshold, long rotNonce) throws Exception {
-        byte[] sig = PhantomCrypto.sign(rootKey, PhantomCrypto.utf8("setguardians|" + chainId + "|" + id + "|" + guardians.toString() + "|" + threshold + "|" + rotNonce));
-        return new JSONObject().put("from", "SETGUARDIANS").put("id", id).put("guardians", guardians).put("threshold", threshold).put("rotNonce", rotNonce).put("cid", chainId).put("sig", PhantomCrypto.hex(sig));
-    }
-    JSONObject recoverApproval(String guardianId, MLDSAPrivateKeyParameters guardianDeviceKey, String id, String newDevice, long rotNonce) throws Exception {
-        String pub = PhantomCrypto.hex(guardianDeviceKey.getPublicKeyParameters().getEncoded());
-        byte[] sig = PhantomCrypto.sign(guardianDeviceKey, PhantomCrypto.utf8("recover|" + chainId + "|" + id + "|" + newDevice + "|" + rotNonce));
-        return new JSONObject().put("guardian", guardianId).put("pub", pub).put("sig", PhantomCrypto.hex(sig));
-    }
-    public JSONObject buildRecoverTx(String id, String newDevice, long rotNonce, JSONArray approvals) throws Exception {
-        return new JSONObject().put("from", "RECOVER").put("id", id).put("newDevice", newDevice).put("rotNonce", rotNonce).put("cid", chainId).put("approvals", approvals);
-    }
+    public JSONObject buildRegisterTx(MLDSAPrivateKeyParameters rootKey, MLDSAPrivateKeyParameters deviceKey) throws Exception { return TxFactory.buildRegisterTx(this, rootKey, deviceKey); }
+    public JSONObject buildRotateTx(String id, MLDSAPrivateKeyParameters rootKey, String newDevice, long rotNonce) throws Exception { return TxFactory.buildRotateTx(this, id, rootKey, newDevice, rotNonce); }
+    JSONObject buildSetGuardiansTx(String id, MLDSAPrivateKeyParameters rootKey, JSONArray guardians, int threshold, long rotNonce) throws Exception { return TxFactory.buildSetGuardiansTx(this, id, rootKey, guardians, threshold, rotNonce); }
+    JSONObject recoverApproval(String guardianId, MLDSAPrivateKeyParameters guardianDeviceKey, String id, String newDevice, long rotNonce) throws Exception { return TxFactory.recoverApproval(this, guardianId, guardianDeviceKey, id, newDevice, rotNonce); }
+    public JSONObject buildRecoverTx(String id, String newDevice, long rotNonce, JSONArray approvals) throws Exception { return TxFactory.buildRecoverTx(this, id, newDevice, rotNonce, approvals); }
 
     // ===== estate / inheritance =====
-    JSONObject buildSetBeneficiaryTx(String actor, String beneficiaryId, long nonce, MLDSAPrivateKeyParameters key) throws Exception {
-        JSONObject tx = new JSONObject().put("from", "SETBENEFICIARY").put("actor", actor).put("beneficiary", beneficiaryId).put("nonce", nonce).put("cid", chainId)
-                .put("pub", PhantomCrypto.hex(key.getPublicKeyParameters().getEncoded()));
-        return tx.put("sig", PhantomCrypto.hex(PhantomCrypto.sign(key, PhantomCrypto.utf8(actionCanon(tx)))));
-    }
-    JSONObject buildClaimTx(String account, long salt) throws Exception { return new JSONObject().put("from", "CLAIM").put("account", account).put("salt", salt).put("cid", chainId); }
+    JSONObject buildSetBeneficiaryTx(String actor, String beneficiaryId, long nonce, MLDSAPrivateKeyParameters key) throws Exception { return TxFactory.buildSetBeneficiaryTx(this, actor, beneficiaryId, nonce, key); }
+    JSONObject buildClaimTx(String account, long salt) throws Exception { return TxFactory.buildClaimTx(this, account, salt); }
 
     // ===== dynamic validator set: a bonded key joins the validator set (append-only) =====
     boolean verifyValJoin(JSONObject tx) throws Exception {
@@ -648,12 +624,7 @@ public class Ledger {
         // the commitment is signed over too, so a joiner can't be assigned someone else's commit0
         return PhantomCrypto.verify(pk(pub), PhantomCrypto.utf8("valjoin|" + chainId + "|" + pub + "|" + tx.getString("beaconCommit0")), PhantomCrypto.unhex(tx.getString("sig")));
     }
-    public JSONObject buildValJoinTx(MLDSAPrivateKeyParameters key) throws Exception {
-        String pub = PhantomCrypto.hex(key.getPublicKeyParameters().getEncoded());
-        String commit0 = beaconCommit0For(key.getEncoded());
-        byte[] sig = PhantomCrypto.sign(key, PhantomCrypto.utf8("valjoin|" + chainId + "|" + pub + "|" + commit0));
-        return new JSONObject().put("from", "VALJOIN").put("pubkey", pub).put("cid", chainId).put("beaconCommit0", commit0).put("sig", PhantomCrypto.hex(sig));
-    }
+    public JSONObject buildValJoinTx(MLDSAPrivateKeyParameters key) throws Exception { return TxFactory.buildValJoinTx(this, key); }
 
     // ===== cluster mining (spec §9): M-of-N member devices act as one validator =====
     public boolean isCluster(String id) { return clusters.containsKey(id); }
@@ -663,13 +634,7 @@ public class Ledger {
 
     public JSONObject buildClusterFormTx(String clusterId, java.util.List<String> members, Map<String, String> memberPubs,
                                   int threshold, MLDSAPrivateKeyParameters initKey, String beaconCommit0) throws Exception {
-        JSONArray ms = new JSONArray(); for (String m : members) ms.put(m);
-        JSONObject mp = new JSONObject(); for (Map.Entry<String, String> e : memberPubs.entrySet()) mp.put(e.getKey(), e.getValue());
-        String initPub = PhantomCrypto.hex(initKey.getPublicKeyParameters().getEncoded());
-        byte[] sig = PhantomCrypto.sign(initKey, PhantomCrypto.utf8(clusterFormCanon(chainId, clusterId, ms, threshold) + "|" + beaconCommit0));
-        return new JSONObject().put("from", "CLUSTERFORM").put("clusterId", clusterId).put("members", ms)
-                .put("memberPubs", mp).put("threshold", threshold).put("cid", chainId)
-                .put("initPub", initPub).put("beaconCommit0", beaconCommit0).put("sig", PhantomCrypto.hex(sig));
+        return TxFactory.buildClusterFormTx(this, clusterId, members, memberPubs, threshold, initKey, beaconCommit0);
     }
 
     /** Apply a CLUSTERFORM to state (idempotent; the cluster joins the validator set as one validator). */
@@ -678,14 +643,7 @@ public class Ledger {
     static String clusterDisbandCanon(String cid, String clusterId) { return ClusterLogic.clusterDisbandCanon(cid, clusterId); }
     boolean verifyClusterDisband(JSONObject tx) throws Exception { return ClusterLogic.verifyClusterDisband(this, tx); }
 
-    JSONObject buildClusterDisbandTx(String clusterId, java.util.List<MLDSAPrivateKeyParameters> memberKeys) throws Exception {
-        String canon = clusterDisbandCanon(chainId, clusterId);
-        JSONArray approvals = new JSONArray();
-        for (MLDSAPrivateKeyParameters mk : memberKeys)
-            approvals.put(new JSONObject().put("m", idOf(PhantomCrypto.hex(mk.getPublicKeyParameters().getEncoded())))
-                    .put("sig", PhantomCrypto.hex(PhantomCrypto.sign(mk, PhantomCrypto.utf8(canon)))));
-        return new JSONObject().put("from", "CLUSTERDISBAND").put("clusterId", clusterId).put("cid", chainId).put("approvals", approvals);
-    }
+    JSONObject buildClusterDisbandTx(String clusterId, java.util.List<MLDSAPrivateKeyParameters> memberKeys) throws Exception { return TxFactory.buildClusterDisbandTx(this, clusterId, memberKeys); }
 
     /** A cluster's consensus signature on a block is a bundle of >= threshold distinct member sigs (M-of-N). */
     public boolean verifyClusterVote(String clusterId, String hash, JSONArray bundle) throws Exception { return ClusterLogic.verifyClusterVote(this, clusterId, hash, bundle); }
@@ -704,27 +662,11 @@ public class Ledger {
     static String bridgeOutCanon(JSONObject tx) throws Exception { return BridgeLogic.bridgeOutCanon(tx); }
     /** Inbound: >=M custodians attest an external deposit -> release PHNT from the reserve to the recipient. */
     boolean verifyBridgeIn(JSONObject tx) throws Exception { return BridgeLogic.verifyBridgeIn(this, tx); }
-    public JSONObject buildBridgeOutTx(String actor, String chain, String ext, long amount, long fee, long nonce, MLDSAPrivateKeyParameters key) throws Exception {
-        JSONObject tx = new JSONObject().put("from", "BRIDGE_OUT").put("actor", actor).put("chain", chain).put("extAddr", ext)
-                .put("amount", amount).put("fee", fee).put("nonce", nonce).put("cid", chainId)
-                .put("pub", PhantomCrypto.hex(key.getPublicKeyParameters().getEncoded()));
-        return tx.put("sig", PhantomCrypto.hex(PhantomCrypto.sign(key, PhantomCrypto.utf8(bridgeOutCanon(tx)))));
-    }
-    public JSONObject bridgeInApproval(String custodianId, MLDSAPrivateKeyParameters custKey, String recipient, long amount, String extTxid) throws Exception {
-        String pub = PhantomCrypto.hex(custKey.getPublicKeyParameters().getEncoded());
-        byte[] sig = PhantomCrypto.sign(custKey, PhantomCrypto.utf8("bridgein|" + chainId + "|" + recipient + "|" + amount + "|" + extTxid));
-        return new JSONObject().put("custodian", custodianId).put("pub", pub).put("sig", PhantomCrypto.hex(sig));
-    }
-    public JSONObject buildBridgeInTx(String recipient, long amount, String extTxid, JSONArray approvals) throws Exception {
-        return new JSONObject().put("from", "BRIDGE_IN").put("recipient", recipient).put("amount", amount)
-                .put("extTxid", extTxid).put("cid", chainId).put("approvals", approvals);
-    }
+    public JSONObject buildBridgeOutTx(String actor, String chain, String ext, long amount, long fee, long nonce, MLDSAPrivateKeyParameters key) throws Exception { return TxFactory.buildBridgeOutTx(this, actor, chain, ext, amount, fee, nonce, key); }
+    public JSONObject bridgeInApproval(String custodianId, MLDSAPrivateKeyParameters custKey, String recipient, long amount, String extTxid) throws Exception { return TxFactory.bridgeInApproval(this, custodianId, custKey, recipient, amount, extTxid); }
+    public JSONObject buildBridgeInTx(String recipient, long amount, String extTxid, JSONArray approvals) throws Exception { return TxFactory.buildBridgeInTx(this, recipient, amount, extTxid, approvals); }
     boolean verifyOracle(JSONObject tx) throws Exception { return BridgeLogic.verifyOracle(this, tx); }
-    public JSONObject buildOracleTx(String custodianId, MLDSAPrivateKeyParameters custKey, String pair, long rate) throws Exception {
-        String pub = PhantomCrypto.hex(custKey.getPublicKeyParameters().getEncoded());
-        byte[] sig = PhantomCrypto.sign(custKey, PhantomCrypto.utf8("oracle|" + chainId + "|" + pair + "|" + rate));
-        return new JSONObject().put("from", "ORACLE").put("custodian", custodianId).put("pub", pub).put("pair", pair).put("rate", rate).put("cid", chainId).put("sig", PhantomCrypto.hex(sig));
-    }
+    public JSONObject buildOracleTx(String custodianId, MLDSAPrivateKeyParameters custKey, String pair, long rate) throws Exception { return TxFactory.buildOracleTx(this, custodianId, custKey, pair, rate); }
     /** Current price = median of custodian-attested rates for a pair (manipulation-resistant). */
     public long oracleMedian(String pair) { return BridgeLogic.oracleMedian(this, pair); }
     public long circulatingSupply() { return EconomicsLogic.circulatingSupply(this); }
@@ -854,26 +796,10 @@ public class Ledger {
         return null;
     }
 
-    public JSONObject buildBondTx(String actor, long amount, long nonce, boolean unbond, MLDSAPrivateKeyParameters key) throws Exception {
-        JSONObject tx = new JSONObject().put("from", unbond ? "UNBOND" : "BOND").put("actor", actor).put("amount", amount).put("nonce", nonce).put("cid", chainId)
-                .put("pub", PhantomCrypto.hex(key.getPublicKeyParameters().getEncoded()));
-        return tx.put("sig", PhantomCrypto.hex(PhantomCrypto.sign(key, PhantomCrypto.utf8(actionCanon(tx)))));
-    }
-    public JSONObject buildUnjailTx(String actor, long nonce, MLDSAPrivateKeyParameters key) throws Exception {
-        JSONObject tx = new JSONObject().put("from", "UNJAIL").put("actor", actor).put("nonce", nonce).put("cid", chainId)
-                .put("pub", PhantomCrypto.hex(key.getPublicKeyParameters().getEncoded()));
-        return tx.put("sig", PhantomCrypto.hex(PhantomCrypto.sign(key, PhantomCrypto.utf8(actionCanon(tx)))));
-    }
-    public JSONObject buildProposeTx(String actor, String propId, String param, long value, long nonce, MLDSAPrivateKeyParameters key) throws Exception {
-        JSONObject tx = new JSONObject().put("from", "PROPOSE").put("actor", actor).put("propId", propId).put("param", param).put("value", value).put("nonce", nonce).put("cid", chainId)
-                .put("pub", PhantomCrypto.hex(key.getPublicKeyParameters().getEncoded()));
-        return tx.put("sig", PhantomCrypto.hex(PhantomCrypto.sign(key, PhantomCrypto.utf8(actionCanon(tx)))));
-    }
-    public JSONObject buildVoteTx(String actor, String propId, boolean choice, long nonce, MLDSAPrivateKeyParameters key) throws Exception {
-        JSONObject tx = new JSONObject().put("from", "VOTE").put("actor", actor).put("propId", propId).put("choice", choice).put("nonce", nonce).put("cid", chainId)
-                .put("pub", PhantomCrypto.hex(key.getPublicKeyParameters().getEncoded()));
-        return tx.put("sig", PhantomCrypto.hex(PhantomCrypto.sign(key, PhantomCrypto.utf8(actionCanon(tx)))));
-    }
+    public JSONObject buildBondTx(String actor, long amount, long nonce, boolean unbond, MLDSAPrivateKeyParameters key) throws Exception { return TxFactory.buildBondTx(this, actor, amount, nonce, unbond, key); }
+    public JSONObject buildUnjailTx(String actor, long nonce, MLDSAPrivateKeyParameters key) throws Exception { return TxFactory.buildUnjailTx(this, actor, nonce, key); }
+    public JSONObject buildProposeTx(String actor, String propId, String param, long value, long nonce, MLDSAPrivateKeyParameters key) throws Exception { return TxFactory.buildProposeTx(this, actor, propId, param, value, nonce, key); }
+    public JSONObject buildVoteTx(String actor, String propId, boolean choice, long nonce, MLDSAPrivateKeyParameters key) throws Exception { return TxFactory.buildVoteTx(this, actor, propId, choice, nonce, key); }
 
 
     // ===== mining economics (simulation) =====

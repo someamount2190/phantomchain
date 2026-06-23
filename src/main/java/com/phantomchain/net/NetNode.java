@@ -36,12 +36,17 @@ import org.bouncycastle.pqc.crypto.mldsa.MLDSAPublicKeyParameters;
  */
 public class NetNode extends NanoHTTPD {
 
-    int N;                         // validator count (per-node view; grows as this node processes joins)
+    volatile int N;                // validator count (per-node view; grows as this node processes joins)
     static final long VIEW_TIMEOUT = 3000L;
     static final long TICK = 700L;
 
-    String[] VAL_IDS;              // validator ids by position (per-node view, tracks N)
-    static final Map<String, MLDSAPublicKeyParameters> PUB_BY_ID = new HashMap<>();
+    // N and VAL_IDS are read unsynchronized by the read handlers (/status /econ /identity) while the
+    // consensus loop grows them in syncValidatorSet on a validator join. Both volatile + N published LAST
+    // (see syncValidatorSet) so a reader that sees the new N is guaranteed to see the matching VAL_IDS array.
+    volatile String[] VAL_IDS;     // validator ids by position (per-node view, tracks N)
+    // id -> consensus pubkey: written by the consensus loop (syncValidatorSet) and read by handler threads
+    // (commitBlock/verifyQC/enqueueSlash), so it must be concurrent, not a plain HashMap (resize race).
+    static final Map<String, MLDSAPublicKeyParameters> PUB_BY_ID = new ConcurrentHashMap<>();
     static Genesis GEN;            // the chain definition (validator set), loaded once per process
     static final Map<String, String> GEN_VALPUBS = new HashMap<>();   // genesis id -> pubkey hex (seeds ledger.valPubs)
 
@@ -110,11 +115,13 @@ public class NetNode extends NanoHTTPD {
     synchronized void syncValidatorSet() {
         int vn = ledger.validatorCount();
         if (vn != N) {
-            N = vn;
+            // publish the array + pubkeys BEFORE the volatile N write, so an unsynchronized reader that
+            // observes the new N (and indexes VAL_IDS[0..N)) is guaranteed to see the matching entries.
             VAL_IDS = ledger.validatorIds();
             for (Map.Entry<String, String> e : ledger.valPubs().entrySet())
                 if (!"CLUSTER".equals(e.getValue()))   // a cluster has no single key; its consensus sig is an M-of-N member bundle (verifyClusterVote)
                     PUB_BY_ID.computeIfAbsent(e.getKey(), kk -> PhantomCrypto.pubKey(e.getValue()));
+            N = vn;
         }
         if (index < 0) {
             int myIdx = ledger.validatorIndex(id);

@@ -128,7 +128,7 @@ public class LargeScaleSim {
                 distinctProposers, N, heights);
         System.out.printf(Locale.US, "  §9.4 cap: whale stake=%d (%.1f%% of stake) -> capped weight %.2f%% (max any validator %.2f%%, cap=%.0f%%)%n",
                 stk.get(ids[0]), 100.0 * stk.get(ids[0]) / totalStake(stk), 100 * wm.getOrDefault(0, 0.0),
-                100 * maxW, 100 * Ledger.WEIGHT_CAP);
+                100 * maxW, 100 * ValidatorSelection.WEIGHT_CAP);
         // geo: report the coverage MULTIPLIER directly (the premium), not an avg-vs-avg ratio confounded by
         // each validator's differing base stake. A sparse-region validator (idx N-1) vs a no-region one (idx 0).
         System.out.printf(Locale.US, "  geo-premium: %d-validator sparse region -> coverage multiplier %.4fx (vs 1.0000x for no-region validators; applied to weight before the cap)%n",

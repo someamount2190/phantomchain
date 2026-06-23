@@ -1002,92 +1002,11 @@ public class Ledger {
     }
 
     boolean excluded(String id) { return slashed.contains(id) || jailedActive(id) || collapsed.contains(id); }   // tombstone, active jail, OR disbanded cluster
-    java.util.List<Integer> liveIdx() {
-        java.util.List<Integer> r = new ArrayList<>();
-        for (int i = 0; i < validators.size(); i++) if (!excluded(validators.get(i))) r.add(i);
-        return r;
-    }
-
-    static final double GEO_ALPHA = 0.2, GEO_BETA = 0.1, GEO_MAX = 2.5;   // Doc D coverage-premium params
-
-    /** Base weight = 0.6·√stake-share + 0.4·identity-share, over non-excluded validators. */
-    double baseWeight(int idx) {
-        if (idx < 0 || idx >= validators.size() || excluded(validators.get(idx))) return 0;
-        double sqSum = 0; long idSum = 0;
-        for (int j : liveIdx()) {
-            sqSum += Math.sqrt(stake.getOrDefault(validators.get(j), 0L));
-            if (verified.contains(validators.get(j))) idSum += identity.getOrDefault(validators.get(j), 0L);   // identity weight only for personhood-verified humans
-        }
-        double stakeShare = sqSum > 0 ? Math.sqrt(stake.getOrDefault(validators.get(idx), 0L)) / sqSum : 0;
-        long myId = verified.contains(validators.get(idx)) ? identity.getOrDefault(validators.get(idx), 0L) : 0;
-        double idShare = idSum > 0 ? (double) myId / idSum : 0;
-        return 0.6 * stakeShare + 0.4 * idShare;
-    }
-
-    /** Geo coverage premium (opt-in): sparse regions earn a higher multiplier so coverage is incentivized.
-     *  density = identity weight of a region's live validators; multiplier = min(MAX, 1 + α/(density+β)). */
-    double coverageMultiplier(int idx) {
-        String region = regions.get(validators.get(idx));
-        if (region == null || region.isEmpty()) return 1.0;   // standard cluster, no premium
-        long density = 0;
-        for (int j : liveIdx()) if (region.equals(regions.get(validators.get(j))))
-            density += Math.max(1L, identity.getOrDefault(validators.get(j), 1L));
-        return Math.min(GEO_MAX, 1.0 + GEO_ALPHA / (density + GEO_BETA));
-    }
-
-    static final double WEIGHT_CAP = 0.10;            // §9.4: no single (cluster) validator may exceed 10% of network weight
-    static final int CAP_MIN_VALIDATORS = 10;         // below this the cap is infeasible (1/N > cap), so it stays INERT — preserving existing chains exactly
-
-    /** Final consensus/reward weight = baseWeight × geo coverage multiplier, renormalized over live set,
-     *  then (at >= CAP_MIN_VALIDATORS live) the 10% per-validator hard cap (§9.4). */
-    double weight(int idx) {
-        if (idx < 0 || idx >= validators.size() || excluded(validators.get(idx))) return 0;
-        Double w = weightMap().get(idx);
-        return w == null ? 0 : w;
-    }
-
-    /** All live validators' final consensus/reward weights (base × geo, renormalized, then the 10% cap)
-     *  in ONE pass. Hot loops (proposerFor/committeeFor) must use this instead of calling weight(idx) per
-     *  validator: the old per-idx weight() re-scanned the whole live set (baseWeight + the cap) on every
-     *  call, so per-idx calls are O(n²) and the loops were O(n³). The shared sqrt/identity/region denominators are
-     *  computed once here. Bit-identical to the old per-idx weight() (same arithmetic, same live order),
-     *  so proposer/committee selection and the state root are unchanged. */
-    java.util.Map<Integer, Double> weightMap() {
-        java.util.List<Integer> live = liveIdx();
-        java.util.Map<Integer, Double> w = new java.util.HashMap<>();
-        if (live.isEmpty()) return w;
-        double sqSum = 0; long idSum = 0;                                  // denominators computed ONCE (not per validator)
-        for (int j : live) {
-            sqSum += Math.sqrt(stake.getOrDefault(validators.get(j), 0L));
-            if (verified.contains(validators.get(j))) idSum += identity.getOrDefault(validators.get(j), 0L);
-        }
-        java.util.Map<String, Long> density = new java.util.HashMap<>();   // region densities computed ONCE
-        for (int j : live) { String rg = regions.get(validators.get(j));
-            if (rg != null && !rg.isEmpty()) density.merge(rg, Math.max(1L, identity.getOrDefault(validators.get(j), 1L)), Long::sum); }
-        double total = 0;
-        for (int j : live) {
-            double stakeShare = sqSum > 0 ? Math.sqrt(stake.getOrDefault(validators.get(j), 0L)) / sqSum : 0;
-            long myId = verified.contains(validators.get(j)) ? identity.getOrDefault(validators.get(j), 0L) : 0;
-            double idShare = idSum > 0 ? (double) myId / idSum : 0;
-            String rg = regions.get(validators.get(j));
-            double cov = (rg == null || rg.isEmpty()) ? 1.0 : Math.min(GEO_MAX, 1.0 + GEO_ALPHA / (density.get(rg) + GEO_BETA));
-            double v = (0.6 * stakeShare + 0.4 * idShare) * cov;
-            w.put(j, v); total += v;
-        }
-        if (total <= 0) { for (int j : live) w.put(j, 0.0); return w; }
-        for (int j : live) w.put(j, w.get(j) / total);
-        if (live.size() < CAP_MIN_VALIDATORS) return w;                    // cap vacuous below CAP_MIN -> normalized base×geo (exact prior behavior)
-        java.util.Set<Integer> capped = new java.util.HashSet<>();         // §9.4 iterative 10% cap on the normalized map
-        for (int iter = 0; iter <= live.size(); iter++) {
-            double excess = 0; boolean any = false;
-            for (int j : live) if (!capped.contains(j) && w.get(j) > WEIGHT_CAP + 1e-12) { excess += w.get(j) - WEIGHT_CAP; w.put(j, WEIGHT_CAP); capped.add(j); any = true; }
-            if (!any) break;
-            double freeSum = 0; for (int j : live) if (!capped.contains(j)) freeSum += w.get(j);
-            if (freeSum <= 0) break;
-            for (int j : live) if (!capped.contains(j)) w.put(j, w.get(j) + excess * (w.get(j) / freeSum));
-        }
-        return w;
-    }
+    // §9 validator weighting (stake/identity + geo premium + 10% cap) — impl in ValidatorSelection.
+    java.util.List<Integer> liveIdx() { return ValidatorSelection.liveIdx(this); }
+    double coverageMultiplier(int idx) { return ValidatorSelection.coverageMultiplier(this, idx); }
+    double weight(int idx) { return ValidatorSelection.weight(this, idx); }
+    java.util.Map<Integer, Double> weightMap() { return ValidatorSelection.weightMap(this); }
 
 
     /** Verify the proposer's reveal matches the commitment it made in its prior block (RANDAO binding). */
@@ -1098,50 +1017,10 @@ public class Ledger {
     static byte[] beaconSecretFor(byte[] keyEncoded, long c) { return BeaconLogic.beaconSecretFor(keyEncoded, c); }
     static String beaconCommit0For(byte[] keyEncoded) { return BeaconLogic.beaconCommit0For(keyEncoded); }
 
-    /** Weighted, deterministic proposer for (height,view), seeded by the commit-reveal beacon. */
-    int proposerFor(String prevHash, int height, int view) throws Exception {
-        java.util.List<Integer> live = liveIdx();
-        if (live.isEmpty()) return height % Math.max(1, validators.size());
-        byte[] seed = PhantomCrypto.sha3_256(PhantomCrypto.utf8(beacon + "|" + height + "|" + view));
-        long s = 0; for (int i = 0; i < 8; i++) s = (s << 8) | (seed[i] & 0xffL);
-        s &= Long.MAX_VALUE;
-        java.util.Map<Integer, Double> wm = weightMap();   // computed once (was O(n²) via per-idx weight())
-        double total = 0; for (int idx : live) total += wm.getOrDefault(idx, 0.0);
-        if (total <= 0) return live.get((int) (s % live.size()));
-        double r = ((double) (s % 1_000_000L) / 1_000_000L) * total, c = 0;
-        for (int idx : live) { c += wm.getOrDefault(idx, 0.0); if (r < c) return idx; }
-        return live.get(live.size() - 1);
-    }
-
-    /** Beacon-sortitioned signing committee for `height`: a weight-proportional sample (without replacement)
-     *  of `committeeSize` validators, deterministic from the beacon. committeeSize<=0 or live<=committeeSize
-     *  returns the FULL live set (deterministic BFT — the safe small-N fallback). Integer weights keep it
-     *  cross-node deterministic. Fixed per height (not view) so two conflicting blocks share one committee. */
-    java.util.List<Integer> committeeFor(int height) {
-        java.util.List<Integer> live = liveIdx();
-        int k = committeeSize;
-        if (k <= 0 || live.size() <= k) return live;
-        java.util.List<Integer> pool = new ArrayList<>(live);
-        java.util.List<Long> w = new ArrayList<>();
-        java.util.Map<Integer, Double> wm = weightMap();   // computed once (was O(n²) via per-idx weight())
-        for (int idx : pool) w.add(Math.max(1L, Math.round(wm.getOrDefault(idx, 0.0) * 1_000_000_000L)));   // integer weights = deterministic
-        java.util.List<Integer> sel = new ArrayList<>();
-        for (int seat = 0; seat < k && !pool.isEmpty(); seat++) {
-            long total = 0; for (long x : w) total += x;
-            byte[] hsh = PhantomCrypto.sha3_256(PhantomCrypto.utf8(beacon + "|cmte|" + height + "|" + seat));
-            long s = 0; for (int i = 0; i < 8; i++) s = (s << 8) | (hsh[i] & 0xffL);
-            long r = Math.floorMod(s, total), cum = 0; int pick = pool.size() - 1;
-            for (int j = 0; j < pool.size(); j++) { cum += w.get(j); if (r < cum) { pick = j; break; } }
-            sel.add(pool.get(pick)); pool.remove(pick); w.remove(pick);
-        }
-        java.util.Collections.sort(sel);
-        return sel;
-    }
-    /** BFT quorum within the signing committee for `height`. */
-    int committeeQuorum(int height) {
-        int c = committeeFor(height).size();
-        return Math.max(1, c - (c - 1) / 3);
-    }
+    // weighted RANDAO proposer election + beacon-sortitioned committee — impl in ValidatorSelection.
+    int proposerFor(String prevHash, int height, int view) throws Exception { return ValidatorSelection.proposerFor(this, prevHash, height, view); }
+    java.util.List<Integer> committeeFor(int height) { return ValidatorSelection.committeeFor(this, height); }
+    int committeeQuorum(int height) { return ValidatorSelection.committeeQuorum(this, height); }
 
     /** Decaying emission: blockReward halved once per halvingBlocks. Deterministic, capped by maxSupply. */
     long blockRewardAt(int height) {

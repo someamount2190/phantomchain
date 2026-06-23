@@ -607,44 +607,6 @@ public class Ledger {
         return null;   // pub is not (or no longer) an authorized device of this identity
     }
 
-    boolean verifyRegister(JSONObject tx) throws Exception {
-        if (!chainId.equals(tx.optString("cid", ""))) return false;
-        String root = tx.getString("root"), device = tx.getString("device");
-        if (identities.containsKey(idOf(root))) return false;   // one-time
-        return PhantomCrypto.verify(pk(root), PhantomCrypto.utf8("register|" + chainId + "|" + root + "|" + device), PhantomCrypto.unhex(tx.getString("sig")));
-    }
-    boolean verifyRootOp(JSONObject tx, String msg) throws Exception {
-        if (!chainId.equals(tx.optString("cid", ""))) return false;
-        JSONObject idn = identities.get(tx.getString("id"));
-        if (idn == null || tx.getLong("rotNonce") != idn.getLong("rotNonce")) return false;   // replay-protected by rotNonce
-        return PhantomCrypto.verify(pk(idn.getString("root")), PhantomCrypto.utf8(msg), PhantomCrypto.unhex(tx.getString("sig")));
-    }
-    boolean verifyRotate(JSONObject tx) throws Exception {
-        return verifyRootOp(tx, "rotate|" + chainId + "|" + tx.getString("id") + "|" + tx.getString("newDevice") + "|" + tx.getLong("rotNonce"));
-    }
-    boolean verifySetGuardians(JSONObject tx) throws Exception {
-        return verifyRootOp(tx, "setguardians|" + chainId + "|" + tx.getString("id") + "|" + tx.getJSONArray("guardians").toString() + "|" + tx.getInt("threshold") + "|" + tx.getLong("rotNonce"));
-    }
-    boolean verifyRecover(JSONObject tx) throws Exception {
-        if (!chainId.equals(tx.optString("cid", ""))) return false;
-        JSONObject idn = identities.get(tx.getString("id"));
-        if (idn == null || tx.getLong("rotNonce") != idn.getLong("rotNonce")) return false;
-        JSONArray gs = idn.getJSONArray("guardians"); int threshold = idn.getInt("threshold");
-        java.util.Set<String> guardianSet = new java.util.HashSet<>(); for (int i = 0; i < gs.length(); i++) guardianSet.add(gs.getString(i));
-        String msg = "recover|" + chainId + "|" + tx.getString("id") + "|" + tx.getString("newDevice") + "|" + tx.getLong("rotNonce");
-        JSONArray ap = tx.getJSONArray("approvals"); java.util.Set<String> seen = new java.util.HashSet<>(); int ok = 0;
-        for (int i = 0; i < ap.length(); i++) {
-            JSONObject a = ap.getJSONObject(i);
-            String g = a.getString("guardian"), ph = a.getString("pub");
-            if (!guardianSet.contains(g) || !seen.add(g)) continue;        // distinct guardian
-            JSONObject gidn = identities.get(g); if (gidn == null) continue;
-            boolean dev = false; JSONArray gd = gidn.getJSONArray("devices");
-            for (int j = 0; j < gd.length(); j++) if (gd.getString(j).equals(ph)) dev = true;
-            if (dev && PhantomCrypto.verify(pk(ph), PhantomCrypto.utf8(msg), PhantomCrypto.unhex(a.getString("sig")))) ok++;
-        }
-        return threshold > 0 && ok >= threshold;
-    }
-
     JSONObject buildRegisterTx(MLDSAPrivateKeyParameters rootKey, MLDSAPrivateKeyParameters deviceKey) throws Exception {
         String root = PhantomCrypto.hex(rootKey.getPublicKeyParameters().getEncoded());
         String device = PhantomCrypto.hex(deviceKey.getPublicKeyParameters().getEncoded());
@@ -939,10 +901,10 @@ public class Ledger {
         if (!canonClean(tx)) return "delimiter in signed field";   // anti-injection (audit NOTE-1)
         if ("SLASH".equals(t)) return verifySlash(tx, pubById) ? null : "bad slash evidence";
         if ("VOUCH".equals(t)) return verifyVouch(tx, pubById) ? null : "bad vouch";
-        if ("REGISTER".equals(t)) return verifyRegister(tx) ? null : "bad register";
-        if ("ROTATE".equals(t)) return verifyRotate(tx) ? null : "bad rotate";
-        if ("SETGUARDIANS".equals(t)) return verifySetGuardians(tx) ? null : "bad setguardians";
-        if ("RECOVER".equals(t)) return verifyRecover(tx) ? null : "bad recover";
+        if ("REGISTER".equals(t)) return RecoveryLogic.verifyRegister(this, tx) ? null : "bad register";
+        if ("ROTATE".equals(t)) return RecoveryLogic.verifyRotate(this, tx) ? null : "bad rotate";
+        if ("SETGUARDIANS".equals(t)) return RecoveryLogic.verifySetGuardians(this, tx) ? null : "bad setguardians";
+        if ("RECOVER".equals(t)) return RecoveryLogic.verifyRecover(this, tx) ? null : "bad recover";
         if ("CLAIM".equals(t)) return EstateLogic.verifyClaim(this, tx) ? null : "estate not claimable";
         if ("VALJOIN".equals(t)) return verifyValJoin(tx) ? null : "bad valjoin";
         if ("CLUSTERFORM".equals(t)) return verifyClusterForm(tx) ? null : "bad clusterform";
@@ -1167,28 +1129,12 @@ public class Ledger {
 
 
     /** Verify the proposer's reveal matches the commitment it made in its prior block (RANDAO binding). */
-    boolean beaconRevealValid(JSONObject b) {
-        int prop = b.optInt("proposer", -1);
-        if (prop < 0 || prop >= validators.size()) return true;
-        String prev = commits.get(validators.get(prop));
-        if (prev == null) return true;   // only reachable for legacy genesis without seeded commit0 (first reveal then unconstrained)
-        // commit is sha3 over the RAW 32 secret bytes (matching beaconCommit()), so hash the unhexed reveal
-        return PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.unhex(b.optString("reveal", "")))).equals(prev);
-    }
-    /** Fold the proposer's revealed value into the beacon and record its next commitment. */
-    void beaconApply(JSONObject b) throws Exception {
-        int prop = b.optInt("proposer", -1);
-        if (prop < 0 || prop >= validators.size()) return;
-        beacon = PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8(beacon + "|" + b.optString("reveal", ""))));
-        if (b.has("commit")) commits.put(validators.get(prop), b.getString("commit"));
-    }
-
-    // ---- canonical beacon-secret derivation (single source of truth; node-side only knows its own key) ----
-    // The seed is derived from the validator's ML-DSA private key so commit0 can be published at keygen and
-    // BOUND at genesis/VALJOIN — closing the unconstrained-first-reveal grind.
-    static byte[] beaconSeedFor(byte[] keyEncoded) { return PhantomCrypto.hkdf(keyEncoded, null, PhantomCrypto.utf8("pcbeaconseed"), 32); }
-    static byte[] beaconSecretFor(byte[] keyEncoded, long c) { return PhantomCrypto.hkdf(beaconSeedFor(keyEncoded), null, PhantomCrypto.utf8("pcbeacon" + c), 32); }
-    static String beaconCommit0For(byte[] keyEncoded) { return PhantomCrypto.hex(PhantomCrypto.sha3_256(beaconSecretFor(keyEncoded, 0))); }
+    // commit-reveal RANDAO beacon — impl in BeaconLogic; thin delegators keep the Ledger API.
+    boolean beaconRevealValid(JSONObject b) { return BeaconLogic.beaconRevealValid(this, b); }
+    void beaconApply(JSONObject b) throws Exception { BeaconLogic.beaconApply(this, b); }
+    static byte[] beaconSeedFor(byte[] keyEncoded) { return BeaconLogic.beaconSeedFor(keyEncoded); }
+    static byte[] beaconSecretFor(byte[] keyEncoded, long c) { return BeaconLogic.beaconSecretFor(keyEncoded, c); }
+    static String beaconCommit0For(byte[] keyEncoded) { return BeaconLogic.beaconCommit0For(keyEncoded); }
 
     /** Weighted, deterministic proposer for (height,view), seeded by the commit-reveal beacon. */
     int proposerFor(String prevHash, int height, int view) throws Exception {

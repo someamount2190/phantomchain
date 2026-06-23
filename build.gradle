@@ -1,0 +1,114 @@
+// PhantomChain node + JVM test/sim suite build.
+//
+// The node sources live in src/node/ (flat, package com.phantomchain.debug) and
+// share that package with three pure-Java core classes in the Android tree
+// (Ledger, PhantomCrypto, ClusterMember). The Android-SDK files and the Android
+// variant of Wallet (node/ ships its own) are excluded so this compiles headless.
+plugins {
+    id 'java'
+}
+
+repositories {
+    mavenCentral()
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs = ['src/node', 'src/android/app/src/main/java']
+            // Android-SDK-only classes (need the Android framework) and the duplicate
+            // Android Wallet (the node ships its own RPC-client Wallet in src/node/).
+            exclude 'com/phantomchain/debug/BioKeystore.java'
+            exclude 'com/phantomchain/debug/MainActivity.java'
+            exclude 'com/phantomchain/debug/WalletStore.java'
+            exclude 'com/phantomchain/debug/Wallet.java'
+        }
+        resources.srcDirs = []
+    }
+    // no separate test sourceSet: the suite is a set of standalone main() drivers
+    test.java.srcDirs = []
+}
+
+dependencies {
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.84'
+    implementation 'org.bouncycastle:bcpkix-jdk18on:1.84'
+    implementation 'org.bouncycastle:bctls-jdk18on:1.84'
+    implementation 'org.bouncycastle:bcutil-jdk18on:1.84'
+    implementation 'org.json:json:20240303'
+    implementation 'org.nanohttpd:nanohttpd:2.3.1'
+}
+
+// The suite is non-JUnit: each *Test is a main() that prints "N passed, M failed"
+// (or "PASS") and exits. runTests drives the deterministic, headless subset and
+// fails the build on any non-zero "failed" count, exception, or non-zero exit.
+def deterministicTests = [
+    'KnownAnswerTest', 'CryptoAuditTest', 'CryptoBreakTest', 'MerkleProofTest', 'MetamorphicTest',
+    'ClusterTest', 'ClusterGovTest', 'ClusterStoreTest', 'ClusterStoreDkgTest', 'DkgTest',
+    'CommitteeTest', 'SybilTest', 'LivenessTest', 'PartitionTest', 'FuzzTest',
+    'AdvAdversaryTest', 'AdversaryTest', 'GenuineAdversaryTest', 'BridgeAdversaryTest',
+    'MempoolDosTest', 'TimestampTest', 'ValidatorJoinTest', 'GovernanceAttackTest',
+    'EstateAttackTest', 'RecoveryAttackTest',
+]
+
+// Socket-binding integration tests (boot a real NetNode on localhost). Run in a
+// separate task so a CI port/timing hiccup doesn't mask a core-logic regression.
+def integrationTests = ['MtlsTest', 'ReadPeerSplitTest', 'EclipseTest']
+
+def runSuite = { List names ->
+    def failures = []
+    names.each { t ->
+        def so = new ByteArrayOutputStream()
+        def r = javaexec {
+            classpath = sourceSets.main.runtimeClasspath
+            mainClass = "com.phantomchain.debug.${t}"
+            standardOutput = so
+            errorOutput = so
+            ignoreExitValue = true
+            environment 'PC_OP_TOKEN', 'ci-test-token'
+        }
+        def txt = so.toString()
+        int failed = 0
+        def m = (txt =~ /(\d+)\s+failed/)
+        if (m.find()) failed = m.group(1) as int
+        boolean ok = r.exitValue == 0 && failed == 0 && !txt.contains('Exception in thread')
+        println "  ${ok ? 'PASS' : 'FAIL'}  ${t}"
+        if (!ok) {
+            failures << t
+            txt.readLines().takeRight(6).each { println "        ${it}" }
+        }
+    }
+    return failures
+}
+
+tasks.register('runTests') {
+    group = 'verification'
+    description = 'Run the deterministic, headless JVM test suite (the CI gate).'
+    dependsOn 'classes'
+    doLast {
+        println "== deterministic suite (${deterministicTests.size()} suites) =="
+        def f = runSuite(deterministicTests)
+        if (!f.isEmpty()) throw new GradleException("Test failures: ${f}")
+        println "All ${deterministicTests.size()} deterministic suites passed."
+    }
+}
+
+tasks.register('runIntegrationTests') {
+    group = 'verification'
+    description = 'Run the socket-binding NetNode integration tests.'
+    dependsOn 'classes'
+    doLast {
+        println "== integration suite (${integrationTests.size()} suites) =="
+        def f = runSuite(integrationTests)
+        if (!f.isEmpty()) throw new GradleException("Integration failures: ${f}")
+        println "All ${integrationTests.size()} integration suites passed."
+    }
+}
+
+tasks.named('test') { enabled = false }            // no JUnit suite
+tasks.named('check') { dependsOn 'runTests' }

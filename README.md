@@ -1,5 +1,7 @@
 # PhantomChain
 
+[![CI](https://github.com/someamount2190/phantomchain/actions/workflows/ci.yml/badge.svg)](https://github.com/someamount2190/phantomchain/actions/workflows/ci.yml)
+
 A post-quantum **PoS-BFT blockchain** with a self-custodial Android wallet. All cryptography uses
 standardized post-quantum primitives via BouncyCastle — no classical ECDSA/RSA in the consensus or
 identity path, and no hand-rolled crypto.
@@ -15,7 +17,7 @@ PRIMITIVES        PhantomCrypto: ML-DSA-65, ML-KEM-1024, SHA3/SHAKE, Argon2id, C
 
 The `Ledger` is a pure deterministic function of committed blocks (no network dependency — it is the
 same class the Android app embeds). `NetNode` drives consensus but never mutates state outside
-`commitBlock`. See [`smoke-test/ARCHITECTURE.md`](smoke-test/ARCHITECTURE.md) for the full reference.
+`commitBlock`. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full reference.
 
 ## What's built
 
@@ -36,17 +38,26 @@ same class the Android app embeds). `NetNode` drives consensus but never mutates
 
 For the honest status of each layer — including the explicitly **interim** and **research-gated**
 items (proof-of-personhood, threshold ML-DSA, PUF attestation) — see
-[`smoke-test/FRONTIER.md`](smoke-test/FRONTIER.md).
+[`docs/FRONTIER.md`](docs/FRONTIER.md).
 
 ## Design specs
 
-- [`phantomchain-design-spec.md`](phantomchain-design-spec.md) — core protocol
-- [`phantomchain-identity-keys-recovery-v0.3.md`](phantomchain-identity-keys-recovery-v0.3.md) — identity, keys, recovery
-- [`phantomchain-external-tx-layer.md`](phantomchain-external-tx-layer.md) — cross-chain bridge
-- [`phantomchain-geo-coverage-premium.md`](phantomchain-geo-coverage-premium.md) — geo coverage premium
+- [`docs/phantomchain-design-spec.md`](docs/phantomchain-design-spec.md) — core protocol
+- [`docs/phantomchain-identity-keys-recovery-v0.3.md`](docs/phantomchain-identity-keys-recovery-v0.3.md) — identity, keys, recovery
+- [`docs/phantomchain-external-tx-layer.md`](docs/phantomchain-external-tx-layer.md) — cross-chain bridge
+- [`docs/phantomchain-geo-coverage-premium.md`](docs/phantomchain-geo-coverage-premium.md) — geo coverage premium
 
 ## Build & run
 
-JDK 17 + BouncyCastle. The networked 3-node cluster (real TCP, TLS 1.3, peer discovery, view-change,
-crash recovery, slashing) and the Android debug app are both reproducible — full steps, endpoint
-reference, and gotchas are in [`smoke-test/BUILD.md`](smoke-test/BUILD.md).
+JDK 17. Build and run the deterministic JVM test suite with the Gradle wrapper (deps resolved from
+Maven Central — no vendored jars needed):
+
+```
+./gradlew runTests              # 25 deterministic suites (the CI gate)
+./gradlew runIntegrationTests   # socket-binding NetNode tests (mTLS / read-peer split / eclipse)
+```
+
+CI (`.github/workflows/ci.yml`) runs the same on every push/PR. The networked cluster (real TCP, TLS
+1.3, peer discovery, view-change, crash recovery, slashing) and the Android debug app are both
+reproducible — full steps, endpoint reference, and gotchas are in [`docs/BUILD.md`](docs/BUILD.md).
+Decomposition plan for the `Ledger` monolith: [`docs/REFACTOR.md`](docs/REFACTOR.md).

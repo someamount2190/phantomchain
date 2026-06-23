@@ -22,7 +22,7 @@ import org.bouncycastle.pqc.crypto.mldsa.MLDSASigner;
 
 /**
  * PhantomChain v0.3 software crypto (debug build) — same library-only constructions
- * validated in the JVM smoke test. No StrongBox / biometric here; biometric is
+ * validated in the JVM test suite. No StrongBox / biometric here; biometric is
  * simulated in the UI. Primitives: ML-DSA-65, Argon2id, HKDF, ChaCha20-Poly1305, SHA3-256.
  */
 public class PhantomCrypto {

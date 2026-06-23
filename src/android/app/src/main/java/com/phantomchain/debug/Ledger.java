@@ -67,7 +67,11 @@ public class Ledger {
      *  Gated on srVersion so legacy "full"/"v1"/"v2" chains (incl. the live testnet, which may hold pre-
      *  state-root / pre-sharding historical blocks) still sync; "m1" already binds the Merkle state root, so
      *  for it the roots must be present. (Found by node/FuzzTest.java.) */
-    boolean requireAppHash() { return "m1".equals(srVersion); }
+    boolean requireAppHash() { return srv().requiresAppHash(); }
+    /** Typed view of {@link #srVersion}, derived from the verbatim-serialized string. All consensus
+     *  version gating goes through this (never raw String.equals on srVersion) so the state-root tail
+     *  can't silently diverge on a typo'd or missed compare. See {@link SrVersion}. */
+    SrVersion srv() { return SrVersion.parse(srVersion); }
     long totalMinted = 0;
     long burned = 0;                          // total tokens burned (fee burn + slashing) — deflationary sink
     static final int EPOCH_LEN = 3;
@@ -1090,8 +1094,8 @@ public class Ledger {
         // state-root param tail compatibility: identityBond + committeeSize were appended in later builds.
         // The serialization version is committed state (srVersion, persisted with the chain) — NOT a JVM
         // launch flag — so every node computes the identical tail without operator coordination.
-        if (!"v1".equals(srVersion)) sb.append(',').append(identityBond);                 // v1 = pre-identityBond
-        if (!"v1".equals(srVersion) && !"v2".equals(srVersion)) sb.append(',').append(committeeSize);   // v2 = pre-committeeSize
+        if (srv().hasIdentityBond()) sb.append(',').append(identityBond);                 // present except V1
+        if (srv().hasCommitteeSize()) sb.append(',').append(committeeSize);               // present in FULL/M1
         // permanent tombstone (excludes from quorum/weight via excluded()) — consensus-critical, must be covered
         sb.append("|sl|"); java.util.List<String> sll = new ArrayList<>(slashed); java.util.Collections.sort(sll);
         for (String v : sll) sb.append(v).append(';');
@@ -1111,7 +1115,7 @@ public class Ledger {
         // "m1": commit to the authenticated account Merkle root so a light client can be given a
         // trustless inclusion proof for any account against the consensus state root (additive — empty
         // for "full"/legacy chains, so their state root is byte-identical to before this build).
-        if ("m1".equals(srVersion)) sb.append("|amr|").append(accountsMerkleRoot());
+        if (srv().bindsMerkleRoot()) sb.append("|amr|").append(accountsMerkleRoot());
         return PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8(sb.toString())));
     }
 

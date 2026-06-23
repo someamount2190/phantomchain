@@ -1,6 +1,6 @@
-# PhantomChain — Smoke Test Build & Run Reference
+# PhantomChain — Build & Run Reference
 
-**Purpose:** reproduce and run the PhantomChain v0.3 crypto smoke tests — a JVM crypto check and an Android debug app — on this machine.
+**Purpose:** reproduce and run PhantomChain v0.3 on this machine — the JVM crypto/consensus test suite and the Android debug app.
 **Last verified:** 2026-06-21 (Windows 11, all steps green).
 **Scope of what this builds — read first:** identity / keys / recovery, a single-node ledger, **and a 3-node toy cluster**. Post-quantum signing, QR backup/recovery, validated transactions into a hash-linked device-signed chain (persisted), plus 3 in-app nodes (ports 8081-8083) that gossip txs and commit blocks via a **2-of-3 quorum-certificate** (round-robin proposer collects a majority of validator ML-DSA signatures into a QC every node verifies). It is a multisig quorum, NOT a true threshold signature, NOT full BFT, and the 3 nodes are co-located on one device — i.e. not "mining" in the spec's cluster sense yet. See [Scope & Non-Goals](#scope--non-goals).
 
@@ -18,8 +18,8 @@
 | avdmanager | `%ANDROID_HOME%\cmdline-tools\latest\bin\avdmanager.bat` |
 | adb | `%ANDROID_HOME%\platform-tools\adb.exe` |
 | emulator | `%ANDROID_HOME%\emulator\emulator.exe` |
-| Gradle | 8.7, downloaded to `smoke-test\android\gradle-dist\gradle-8.7\` (no system Gradle) |
-| Project root | `C:\Users\Christian Correa\OneDrive\Desktop\Projects\PhantomChain\smoke-test` |
+| Gradle | 8.7, downloaded to `src\android\gradle-dist\gradle-8.7\` (no system Gradle) |
+| Project root | `C:\Users\Christian Correa\OneDrive\Desktop\Projects\PhantomChain\src` |
 | Emulator accel | **WHPX is usable** (`emulator -accel-check` → accel 0) despite the "HypervisorPlatform" Windows feature reading as disabled. Boots headless in ~55 s. |
 
 The SDK started bare (only `cmdline-tools/latest`). Components installed: `platform-tools`, `platforms;android-34`, `build-tools;34.0.0`, `emulator`, `system-images;android-34;google_apis;x86_64`.
@@ -29,11 +29,10 @@ The SDK started bare (only `cmdline-tools/latest`). Components installed: `platf
 ## 1. Project layout
 
 ```
-smoke-test/
-  PhantomSmoke.java              # JVM crypto smoke test (no Android)
-  lib/                           # bcprov-jdk18on-1.84.jar, bcutil-jdk18on-1.84.jar
-  out/                           # compiled JVM test classes
-  BUILD.md                       # this file
+src/
+  node/                          # validator node + JVM test/sim suite (NodeMain, NetNode, *Test.java)
+  lib/                           # bcprov-jdk18on-1.84.jar, bcutil-jdk18on-1.84.jar, …
+  out/                           # compiled JVM classes
   android/
     settings.gradle  build.gradle  gradle.properties  local.properties
     gradle-dist/gradle-8.7/...    # the Gradle distribution
@@ -55,17 +54,19 @@ smoke-test/
 
 ---
 
-## 2. JVM crypto smoke test (no device needed)
+## 2. JVM crypto & consensus test suite (no device needed)
 
-Validates ML-DSA-65, ML-KEM-1024, Argon2id, HKDF, ChaCha20-Poly1305 — **all library calls, no hand-rolled crypto**.
+Validates ML-DSA-65, ML-KEM-1024, Argon2id, HKDF, ChaCha20-Poly1305 and the consensus/economics engine — **all library calls, no hand-rolled crypto**. The suite lives in `src/node/` (`KnownAnswerTest`, `CryptoAuditTest`, `CryptoBreakTest`, `MerkleProofTest`, `ClusterTest`, `LivenessTest`, `MetamorphicTest`, and the adversarial suites).
 
 ```powershell
-$base = "C:\Users\Christian Correa\OneDrive\Desktop\Projects\PhantomChain\smoke-test"
-javac -cp "$base\lib\*" -d "$base\out" "$base\PhantomSmoke.java"
-java  -cp "$base\out;$base\lib\*" PhantomSmoke
+$base = "C:\Users\Christian Correa\OneDrive\Desktop\Projects\PhantomChain\src"
+$core = "$base\android\app\src\main\java\com\phantomchain\debug"
+javac -cp "$base\lib\*" -d "$base\out" $base\node\*.java "$core\Ledger.java" "$core\PhantomCrypto.java" "$core\ClusterMember.java"
+java -cp "$base\out;$base\lib\*" com.phantomchain.debug.KnownAnswerTest
+java -cp "$base\out;$base\lib\*" com.phantomchain.debug.ClusterTest
 ```
 
-Expected: `RESULT: 10 passed, 0 failed`. Notable outputs: ML-DSA sig = 3309 B (exceeds single-QR ~2900 B → needs multi-frame QR); recovery ciphertext = 48 B (fits one QR).
+Expected: each suite prints `N passed, 0 failed` (e.g. `KnownAnswerTest: 11 passed`, `ClusterTest: 25 passed`). Notable outputs: ML-DSA sig = 3309 B (exceeds single-QR ~2900 B → needs multi-frame QR); recovery ciphertext = 48 B (fits one QR).
 
 To re-pull the BouncyCastle jars if `lib/` is missing:
 ```powershell
@@ -84,7 +85,7 @@ Piping `y` into `sdkmanager --licenses` through a PowerShell `|` pipe **does not
 
 ```powershell
 $env:JAVA_HOME = "C:\Users\Christian Correa\scoop\apps\temurin17-jdk\current"
-$base = "C:\Users\Christian Correa\OneDrive\Desktop\Projects\PhantomChain\smoke-test\android"
+$base = "C:\Users\Christian Correa\OneDrive\Desktop\Projects\PhantomChain\src\android"
 $sm   = "$env:ANDROID_HOME\cmdline-tools\latest\bin\sdkmanager.bat"
 [IO.File]::WriteAllText("$base\yes.txt", ("y`r`n" * 100))
 Start-Process -FilePath $sm -ArgumentList "--licenses" `
@@ -109,8 +110,8 @@ Verify: `Test-Path "$env:ANDROID_HOME\platform-tools\adb.exe"` etc. for each com
 
 ```powershell
 $env:JAVA_HOME = "C:\Users\Christian Correa\scoop\apps\temurin17-jdk\current"
-$g    = "C:\Users\Christian Correa\OneDrive\Desktop\Projects\PhantomChain\smoke-test\android\gradle-dist\gradle-8.7\bin\gradle.bat"
-$proj = "C:\Users\Christian Correa\OneDrive\Desktop\Projects\PhantomChain\smoke-test\android"
+$g    = "C:\Users\Christian Correa\OneDrive\Desktop\Projects\PhantomChain\src\android\gradle-dist\gradle-8.7\bin\gradle.bat"
+$proj = "C:\Users\Christian Correa\OneDrive\Desktop\Projects\PhantomChain\src\android"
 & $g -p $proj assembleDebug --no-daemon --console=plain
 # => BUILD SUCCESSFUL; APK at app\build\outputs\apk\debug\app-debug.apk
 ```
@@ -155,7 +156,7 @@ for ($i=0; $i -lt 90; $i++) {
 The app starts the prop mesh server on device port 8080 in `onCreate`. Forward it and curl the `/debug` drivers (no UI tapping needed).
 ```powershell
 $adb = "$env:ANDROID_HOME\platform-tools\adb.exe"
-$apk = "C:\Users\Christian Correa\OneDrive\Desktop\Projects\PhantomChain\smoke-test\android\app\build\outputs\apk\debug\app-debug.apk"
+$apk = "C:\Users\Christian Correa\OneDrive\Desktop\Projects\PhantomChain\src\android\app\build\outputs\apk\debug\app-debug.apk"
 & $adb install -r $apk
 & $adb shell am start -n com.phantomchain.debug/.MainActivity
 & $adb forward tcp:8080 tcp:8080
@@ -225,10 +226,9 @@ Stop the emulator: `& $adb -s emulator-5554 emu kill`.
 
 ```powershell
 $env:JAVA_HOME = "C:\Users\Christian Correa\scoop\apps\temurin17-jdk\current"
-$base = "C:\Users\Christian Correa\OneDrive\Desktop\Projects\PhantomChain\smoke-test"
+$base = "C:\Users\Christian Correa\OneDrive\Desktop\Projects\PhantomChain\src"
 $adb  = "$env:ANDROID_HOME\platform-tools\adb.exe"
-# 1. (optional) JVM crypto test
-javac -cp "$base\lib\*" -d "$base\out" "$base\PhantomSmoke.java"; java -cp "$base\out;$base\lib\*" PhantomSmoke
+# 1. (optional) JVM crypto/consensus test suite — see §2 for the compile + run
 # 2. build APK
 & "$base\android\gradle-dist\gradle-8.7\bin\gradle.bat" -p "$base\android" assembleDebug --no-daemon --console=plain
 # 3. boot emulator (run_in_background): emulator.exe -avd phantom34 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect
@@ -243,7 +243,7 @@ Unlike the in-app cluster (§6, co-located on 8081-8083), this runs the **same c
 
 **Compile** (explicit file list — do NOT compile the whole dir; MainActivity needs Android):
 ```powershell
-$st = "C:\Users\Christian Correa\OneDrive\Desktop\Projects\PhantomChain\smoke-test"
+$st = "C:\Users\Christian Correa\OneDrive\Desktop\Projects\PhantomChain\src"
 $adir = "$st\android\app\src\main\java\com\phantomchain\debug"
 javac -cp "$st\lib\*" -d "$st\node\out" "$adir\PhantomCrypto.java" "$adir\Ledger.java" "$st\node\NetNode.java" "$st\node\NodeMain.java"
 ```
@@ -324,6 +324,6 @@ QEMU is installed via scoop and runs without admin (WHPX-accelerated here; falls
 
 Also runnable, two ways: (a) an **in-app 3-node cluster** (co-located, ports 8081-8083), and (b) a **networked cluster of 3 separate JVM processes** (§9, ports 9091-9093) over real TCP. Both use deterministic genesis, tx gossip, and a **2-of-3 quorum-certificate commit**. The networked one adds and has **verified**: seed-based **peer discovery** (only a seed configured; membership learned over the wire), **autonomous view-change** (a dead proposer no longer stalls — the next validator takes over after a timeout), **crash fault-tolerance** (committed with 1 node down), **catch-up resync** (a killed node restarted, pulled missed blocks, and rejoined), **persistent per-height votes** (reloaded on boot; no double-vote across a crash), and **double-sign slashing** (equivocation evidence → on-chain SLASH → stake burned + validator ejected, all nodes agreeing).
 
-**What this smoke test proves (Android + JVM, §1–§6) vs. the full node layer (§9):** the QC here is a **multisig, not a true threshold signature** — several separate ML-DSA signatures, not one aggregate (that interim is shared with the full node; a production threshold-ML-DSA library doesn't exist yet). Byzantine accountability is honest-but-partial: it punishes *equivocation* (double-sign) with persistent-vote prevention + slashing, but is not a full BFT safety proof (vote-withholding, invalid-block spam, long-range/eclipse aren't fully handled). **The cluster model, economics, and bridge have since been built, verified, and run live** on testnet-2 — Reed-Solomon(k,n) erasure-coded history sharding, decaying-emission rewards + fee burn + staking/slashing economics, cluster mining (M-of-N member devices = one validator), and the cross-chain bridge. For the authoritative tier status and the honest research-gated gaps (threshold ML-DSA, proof-of-personhood, PUF attestation), see [`FRONTIER.md`](FRONTIER.md).
+**What the Android + JVM build proves (§1–§6) vs. the full node layer (§9):** the QC here is a **multisig, not a true threshold signature** — several separate ML-DSA signatures, not one aggregate (that interim is shared with the full node; a production threshold-ML-DSA library doesn't exist yet). Byzantine accountability is honest-but-partial: it punishes *equivocation* (double-sign) with persistent-vote prevention + slashing, but is not a full BFT safety proof (vote-withholding, invalid-block spam, long-range/eclipse aren't fully handled). **The cluster model, economics, and bridge have since been built, verified, and run live** on testnet-2 — Reed-Solomon(k,n) erasure-coded history sharding, decaying-emission rewards + fee burn + staking/slashing economics, cluster mining (M-of-N member devices = one validator), and the cross-chain bridge. For the authoritative tier status and the honest research-gated gaps (threshold ML-DSA, proof-of-personhood, PUF attestation), see [`FRONTIER.md`](FRONTIER.md).
 
 **The one research-grade primitive for the next layer:** threshold ML-DSA — it would compress the quorum certificate's several signatures into a **single aggregate signature** jointly produced by the quorum. 2026 schemes (Mithril/THED/Quorus) exist but have no production Java/Android library. After that, real BFT (view-change + equivocation slashing) and multi-device deployment are the remaining steps toward the spec's cluster mining.

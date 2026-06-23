@@ -1,0 +1,9 @@
+# Normalize text; keep CI shell scripts LF so Linux runners can exec them.
+* text=auto
+gradlew      text eol=lf
+*.sh         text eol=lf
+*.bat        text eol=crlf
+*.jar        binary
+*.p12        binary
+*.png        binary
+*.qcow2      binary

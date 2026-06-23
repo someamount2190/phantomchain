@@ -14,16 +14,16 @@ truststore.p12
 *.bat
 
 # Nested repo (has its own remote: someamount2190/phantomchain-node)
-smoke-test/pc-node-repo/
+src/pc-node-repo/
 
 # Node runtime data / chain state / per-node dirs
-smoke-test/node/node-data*/
-smoke-test/node/ph[0-9]*/
-smoke-test/node/testnet/
-smoke-test/node/tn[0-9]*/
-smoke-test/node/join/
-smoke-test/node/live/
-smoke-test/node/bt/
+src/node/node-data*/
+src/node/ph[0-9]*/
+src/node/testnet/
+src/node/tn[0-9]*/
+src/node/join/
+src/node/live/
+src/node/bt/
 **/pcdata/
 
 # Scratch: UI dumps, cert-chain captures, stray text logs
@@ -41,21 +41,21 @@ node-*.json
 **/build/
 **/out/
 **/.gradle/
-smoke-test/android/gradle-dist/
-smoke-test/deploy/
-smoke-test/lib/
-smoke-test/sim/
-smoke-test/node/node-data*/
-smoke-test/node/pcdata*/
+src/android/gradle-dist/
+src/deploy/
+src/lib/
+src/sim/
+src/node/node-data*/
+src/node/pcdata*/
 *.apk
 *.dex
 *.class
 
 # VM disk images & artifacts (~1.2 GB)
-smoke-test/vm/*.qcow2
-smoke-test/vm/*.img
-smoke-test/vm/*.iso
-smoke-test/vm/serial.log
+src/vm/*.qcow2
+src/vm/*.img
+src/vm/*.iso
+src/vm/serial.log
 
 # ─────────────────────────────────────────────────────────────
 # Machine-specific config, logs, scratch, generated media

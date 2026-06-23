@@ -587,7 +587,7 @@ public class Ledger implements LedgerView {
      *  validator that voted the prior view's block re-votes it rather than wedging the height (issue #1).
      *  This closes the common crash-with-converged-mempool wedge; the Byzantine / divergent-mempool case still
      *  needs view-change certificates (see [OPEN-BFT-01] in FRONTIER + VoteLockWedgeTest). */
-    public long nextBlockTs() {
+    public long nextBlockTs() throws Exception {   // getLong throws checked JSONException on Android
         return chain.isEmpty() ? 0L : chain.get(chain.size() - 1).getLong("ts") + 1L;
     }
 

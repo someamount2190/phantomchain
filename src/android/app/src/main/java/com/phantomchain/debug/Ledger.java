@@ -344,7 +344,7 @@ public class Ledger {
         for (int i = 0; i < txs.length(); i++) {
             JSONObject tx = txs.getJSONObject(i);
             String t = tx.optString("from");
-            String active = activeParty(tx);
+            String active = EstateLogic.activeParty(tx);
             if (active != null) lastActive.put(active, (long) H);   // outgoing action resets the estate clock
             if (isTransfer(tx)) { blockFees += tx.optLong("fee", 0); continue; }
             switch (t) {
@@ -669,24 +669,6 @@ public class Ledger {
     }
 
     // ===== estate / inheritance =====
-    /** The party whose action this tx represents (resets the inactivity clock). Incoming transfers do NOT. */
-    static String activeParty(JSONObject tx) {
-        String t = tx.optString("from");
-        if (!SPECIAL.contains(t)) return t;   // transfer: the sender
-        switch (t) {
-            case "BOND": case "UNBOND": case "UNJAIL": case "PROPOSE": case "VOTE": case "SETBENEFICIARY": return tx.optString("actor", null);
-            case "REGISTER": { String r = tx.optString("root", ""); return r.isEmpty() ? null : idOf(r); }
-            case "ROTATE": case "RECOVER": case "SETGUARDIANS": return tx.optString("id", null);
-            case "VOUCH": return tx.optString("voucher", null);
-            default: return null;   // GENESIS, SLASH, CLAIM
-        }
-    }
-    boolean verifyClaim(JSONObject tx) throws Exception {
-        if (!chainId.equals(tx.optString("cid", ""))) return false;
-        String acct = tx.getString("account");
-        return beneficiary.containsKey(acct) && balanceOf(acct) > 0
-                && height() - lastActive.getOrDefault(acct, 0L) >= estateInactivity;   // inactive long enough
-    }
     JSONObject buildSetBeneficiaryTx(String actor, String beneficiaryId, long nonce, MLDSAPrivateKeyParameters key) throws Exception {
         JSONObject tx = new JSONObject().put("from", "SETBENEFICIARY").put("actor", actor).put("beneficiary", beneficiaryId).put("nonce", nonce).put("cid", chainId)
                 .put("pub", PhantomCrypto.hex(key.getPublicKeyParameters().getEncoded()));
@@ -961,7 +943,7 @@ public class Ledger {
         if ("ROTATE".equals(t)) return verifyRotate(tx) ? null : "bad rotate";
         if ("SETGUARDIANS".equals(t)) return verifySetGuardians(tx) ? null : "bad setguardians";
         if ("RECOVER".equals(t)) return verifyRecover(tx) ? null : "bad recover";
-        if ("CLAIM".equals(t)) return verifyClaim(tx) ? null : "estate not claimable";
+        if ("CLAIM".equals(t)) return EstateLogic.verifyClaim(this, tx) ? null : "estate not claimable";
         if ("VALJOIN".equals(t)) return verifyValJoin(tx) ? null : "bad valjoin";
         if ("CLUSTERFORM".equals(t)) return verifyClusterForm(tx) ? null : "bad clusterform";
         if ("CLUSTERDISBAND".equals(t)) return verifyClusterDisband(tx) ? null : "bad clusterdisband";

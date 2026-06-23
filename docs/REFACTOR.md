@@ -45,11 +45,16 @@ in CI. Verified byte-identical.
 
 ## Step 2 — extract leaf subsystems behind interfaces (in progress)
 
-First leaf done: **`BridgeLogic`** — the cross-chain custodian M-of-N verification
-(`verifyBridgeIn`/`verifyOracle`/`bridgeOutCanon`) moved out; bridge state stays in
-`Ledger`; delegators keep call sites unchanged. Guarded by `BridgeAdversaryTest`.
-Next, same pattern: Estate (inactivity claim), Governance (proposal lifecycle),
-Recovery (guardian M-of-N), Beacon (commit-reveal). `Ledger`: 1640 → 1293 lines so far.
+Leaves done:
+- **`BridgeLogic`** — cross-chain custodian M-of-N verification (`verifyBridgeIn` /
+  `verifyOracle` / `bridgeOutCanon`); bridge state stays in `Ledger`; delegators keep
+  call sites unchanged. Guarded by `BridgeAdversaryTest`.
+- **`EstateLogic`** — inheritance policy (`activeParty` clock-reset rule + `verifyClaim`
+  inactivity check); estate state stays in `Ledger`; call sites updated directly (no
+  delegators — both were Ledger-internal). Guarded by `EstateAttackTest`.
+
+Next, same pattern: Governance (proposal lifecycle), Recovery (guardian M-of-N),
+Beacon (commit-reveal). `Ledger`: 1640 → 1275 lines so far.
 
 ## Step 2 — extract leaf subsystems behind interfaces, one at a time
 

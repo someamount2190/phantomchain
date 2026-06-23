@@ -368,6 +368,26 @@ public class Ledger implements LedgerView {
     }
 
     public String commitBlock(JSONObject b, Map<String, MLDSAPublicKeyParameters> pubById) throws Exception {
+        // Single-slot state transition, decomposed into ordered phases (each a private helper below). The
+        // ORDER is consensus-critical: the state root is hashed over the resulting state, so any reordering
+        // forks the chain. These phases are pure code motion from the former monolith — byte-identical,
+        // pinned by the 40 golden state-root vectors + the adversarial suite that exercises every tx type.
+        String herr = validateBlockHeader(b);
+        if (herr != null) return herr;
+        String terr = validateAndFlushTxs(b, pubById);            // phases 1-2: validate vs projection, flush balances/nonces
+        if (terr != null) return terr;
+        long blockFees = applyTxEffects(b, b.getInt("height"));   // phase 3: non-balance state effects + fee collection
+        chain.add(b);
+        beaconApply(b);                                           // fold the proposer's reveal into the beacon, record its next commitment
+        settleBlock(b, blockFees);                                // phases 4-5: distribute tx fees, mature due unbondings
+        GovernanceLogic.finalizeProposals(this);                  // phase 6: finalize due governance proposals
+        dropIncludedTxs(b.getJSONArray("txs"));                   // phase 7: drop included txs from the mempool
+        if (!validators.isEmpty()) maybeEpochReward();            // phase 8: epoch emission (decaying, supply-capped)
+        return "appended";
+    }
+
+    /** Phase 0 — header validation: height/prevHash/hash, hardened-chain bounds, prev-root binding, beacon reveal. */
+    private String validateBlockHeader(JSONObject b) throws Exception {
         if (b.getInt("height") != chain.size()) return "rejected: bad height (have " + chain.size() + ")";
         if (!b.getString("prevHash").equals(lastHash())) return "rejected: bad prevHash";
         String preimage = chainId + "|" + b.getInt("height") + "|" + b.getString("prevHash") + "|"
@@ -385,23 +405,29 @@ public class Ledger implements LedgerView {
         if (requireAppHash() && pshr == null) return "rejected: prevShardsRoot required (srVersion=" + srVersion + ")";
         if (pshr != null && !shardsRoot().equals(pshr)) return "rejected: shards root mismatch";
         if (!beaconRevealValid(b)) return "rejected: bad beacon reveal";   // RANDAO: reveal must match prior commit
-        int H = b.getInt("height");
+        return null;
+    }
+
+    /** Phases 1-2 — validate every tx against a projection of committed state (balances + nonces), then flush it. */
+    private String validateAndFlushTxs(JSONObject b, Map<String, MLDSAPublicKeyParameters> pubById) throws Exception {
         JSONArray txs = b.getJSONArray("txs");
-        // 1) validate every tx against a projection of committed state (balances + nonces)
         Map<String, long[]> m = new HashMap<>();
         for (int i = 0; i < txs.length(); i++) {
             String err = txCheck(txs.getJSONObject(i), pubById, m);
             if (err != null) return "rejected: " + err;
         }
-        // 2) flush projected balances/nonces
         for (Map.Entry<String, long[]> e : m.entrySet()) {
             Account a = accounts.get(e.getKey());
             if (a == null) { a = new Account(); accounts.put(e.getKey(), a); }
             a.balance = e.getValue()[0]; a.nonce = e.getValue()[1];
         }
-        // 3) apply non-balance state effects + collect fees
+        return null;
+    }
+
+    /** Phase 3 — apply non-balance state effects (governance / identity / staking / bridge / estate) and collect tx fees. */
+    private long applyTxEffects(JSONObject b, int H) throws Exception {
+        JSONArray txs = b.getJSONArray("txs");
         long blockFees = 0;
-        int proposerIdx = b.optInt("proposer", -1);
         for (int i = 0; i < txs.length(); i++) {
             JSONObject tx = txs.getJSONObject(i);
             String t = tx.optString("from");
@@ -518,9 +544,12 @@ public class Ledger implements LedgerView {
                 }
             }
         }
-        chain.add(b);
-        beaconApply(b);   // fold the proposer's reveal into the beacon, record its next commitment
-        // 4) tx fees: burn feeBurnBps%, remainder to the block proposer (validator income beyond emission)
+        return blockFees;
+    }
+
+    /** Phases 4-5 — distribute tx fees (burn feeBurnBps%, remainder to the block proposer) and mature due unbondings. */
+    private void settleBlock(JSONObject b, long blockFees) {
+        int proposerIdx = b.optInt("proposer", -1);
         if (blockFees > 0) {
             long burnF = blockFees * feeBurnBps / 10000;
             burned += burnF;
@@ -531,7 +560,6 @@ public class Ledger implements LedgerView {
                 a.balance += toProp;
             } else burned += toProp;
         }
-        // 5) mature unbondings -> liquid balance
         for (Iterator<JSONObject> it = unbonding.iterator(); it.hasNext(); ) {
             JSONObject u = it.next();
             if (u.getLong("mature") <= height()) {
@@ -540,15 +568,13 @@ public class Ledger implements LedgerView {
                 a.balance += u.getLong("amount"); it.remove();
             }
         }
-        // 6) finalize due governance proposals
-        GovernanceLogic.finalizeProposals(this);
-        // 7) drop included txs from mempool
+    }
+
+    /** Phase 7 — drop the block's included txs from the mempool. */
+    private void dropIncludedTxs(JSONArray txs) {
         final java.util.Set<String> included = new java.util.HashSet<>();
         for (int i = 0; i < txs.length(); i++) included.add(txId(txs.getJSONObject(i)));
         mempool.removeIf(t -> included.contains(txId(t)));
-        // 8) epoch emission (decaying, supply-capped)
-        if (!validators.isEmpty()) maybeEpochReward();
-        return "appended";
     }
 
     // ===== quorum-certificate support =====

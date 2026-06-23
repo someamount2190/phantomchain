@@ -1,9 +1,10 @@
-// PhantomChain node + JVM test/sim suite build.
+// PhantomChain build.
 //
-// The node sources live in src/node/ (flat, package com.phantomchain.debug) and
-// share that package with three pure-Java core classes in the Android tree
-// (Ledger, PhantomCrypto, ClusterMember). The Android-SDK files and the Android
-// variant of Wallet (node/ ships its own) are excluded so this compiles headless.
+//   src/core/java  shared state machine + crypto (Ledger, StateRootCodec, SrVersion,
+//                  Bridge/Estate/Recovery/BeaconLogic, PhantomCrypto, ClusterMember);
+//                  also embedded by the Android app (src/android), which adds this as a srcDir.
+//   src/main/java  node / networking production (NetNode, NodeMain, TlsSetup, …).
+//   src/test/java  standalone main() test + sim drivers (the CI gate via runTests).
 plugins {
     id 'java'
 }
@@ -19,20 +20,16 @@ java {
 }
 
 sourceSets {
+    // src/core = shared state machine + crypto (also embedded by the Android app);
+    // src/main = node/networking production; src/test = the standalone main() test/sim drivers.
     main {
-        java {
-            srcDirs = ['src/node', 'src/android/app/src/main/java']
-            // Android-SDK-only classes (need the Android framework) and the duplicate
-            // Android Wallet (the node ships its own RPC-client Wallet in src/node/).
-            exclude 'com/phantomchain/debug/BioKeystore.java'
-            exclude 'com/phantomchain/debug/MainActivity.java'
-            exclude 'com/phantomchain/debug/WalletStore.java'
-            exclude 'com/phantomchain/debug/Wallet.java'
-        }
+        java { srcDirs = ['src/core/java', 'src/main/java'] }
         resources.srcDirs = []
     }
-    // no separate test sourceSet: the suite is a set of standalone main() drivers
-    test.java.srcDirs = []
+    test {
+        java { srcDirs = ['src/test/java'] }
+        resources.srcDirs = []
+    }
 }
 
 dependencies {
@@ -65,7 +62,7 @@ def runSuite = { List names ->
     names.each { t ->
         def so = new ByteArrayOutputStream()
         def r = javaexec {
-            classpath = sourceSets.main.runtimeClasspath
+            classpath = sourceSets.test.runtimeClasspath
             mainClass = "com.phantomchain.debug.${t}"
             standardOutput = so
             errorOutput = so
@@ -89,7 +86,7 @@ def runSuite = { List names ->
 tasks.register('runTests') {
     group = 'verification'
     description = 'Run the deterministic, headless JVM test suite (the CI gate).'
-    dependsOn 'classes'
+    dependsOn 'testClasses'
     doLast {
         println "== deterministic suite (${deterministicTests.size()} suites) =="
         def f = runSuite(deterministicTests)
@@ -101,7 +98,7 @@ tasks.register('runTests') {
 tasks.register('runIntegrationTests') {
     group = 'verification'
     description = 'Run the socket-binding NetNode integration tests.'
-    dependsOn 'classes'
+    dependsOn 'testClasses'
     doLast {
         println "== integration suite (${integrationTests.size()} suites) =="
         def f = runSuite(integrationTests)

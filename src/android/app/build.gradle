@@ -19,6 +19,15 @@ android {
         debug { }
     }
 
+    // The shared state machine + crypto now live in the canonical src/core/java (one home,
+    // also compiled by the JVM node build). The app embeds them by adding that as a source dir,
+    // alongside its own Android-only classes (MainActivity, BioKeystore, WalletStore, Wallet).
+    sourceSets {
+        main {
+            java.srcDirs += '../../core/java'
+        }
+    }
+
     compileOptions {
         coreLibraryDesugaringEnabled true
         sourceCompatibility JavaVersion.VERSION_17

@@ -56,17 +56,14 @@ src/
 
 ## 2. JVM crypto & consensus test suite (no device needed)
 
-Validates ML-DSA-65, ML-KEM-1024, Argon2id, HKDF, ChaCha20-Poly1305 and the consensus/economics engine — **all library calls, no hand-rolled crypto**. The suite lives in `src/node/` (`KnownAnswerTest`, `CryptoAuditTest`, `CryptoBreakTest`, `MerkleProofTest`, `ClusterTest`, `LivenessTest`, `MetamorphicTest`, and the adversarial suites).
+Validates ML-DSA-65, ML-KEM-1024, Argon2id, HKDF, ChaCha20-Poly1305 and the consensus/economics engine — **all library calls, no hand-rolled crypto**. The suite is the standalone `main()` drivers in `src/test/java/com/phantomchain/debug/` (`KnownAnswerTest`, `CryptoAuditTest`, `CryptoBreakTest`, `MerkleProofTest`, `ClusterTest`, `LivenessTest`, `MetamorphicTest`, `GoldenStateRootTest`, and the adversarial suites). Run the whole gate with the Gradle wrapper (deps resolved from Maven Central — no vendored jars):
 
-```powershell
-$base = "C:\Users\Christian Correa\OneDrive\Desktop\Projects\PhantomChain\src"
-$core = "$base\android\app\src\main\java\com\phantomchain\debug"
-javac -cp "$base\lib\*" -d "$base\out" $base\node\*.java "$core\Ledger.java" "$core\PhantomCrypto.java" "$core\ClusterMember.java"
-java -cp "$base\out;$base\lib\*" com.phantomchain.debug.KnownAnswerTest
-java -cp "$base\out;$base\lib\*" com.phantomchain.debug.ClusterTest
+```
+./gradlew runTests              # deterministic suite (the CI gate)
+./gradlew runIntegrationTests   # socket-binding NetNode tests
 ```
 
-Expected: each suite prints `N passed, 0 failed` (e.g. `KnownAnswerTest: 11 passed`, `ClusterTest: 25 passed`). Notable outputs: ML-DSA sig = 3309 B (exceeds single-QR ~2900 B → needs multi-frame QR); recovery ciphertext = 48 B (fits one QR).
+Expected: `All N deterministic suites passed`. Notable outputs (from individual suites): ML-DSA sig = 3309 B (exceeds single-QR ~2900 B → needs multi-frame QR); recovery ciphertext = 48 B (fits one QR). Source layout: `src/core/java` (shared state machine + crypto), `src/main/java` (node/networking), `src/test/java` (the suites).
 
 To re-pull the BouncyCastle jars if `lib/` is missing:
 ```powershell

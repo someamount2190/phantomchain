@@ -1,5 +1,30 @@
 # Decomposition plan — breaking up `Ledger`
 
+## File architecture (done)
+
+The flat `src/node/` (51 files mixing production + tests) and the shared engine buried
+in the Android app tree are gone. Standard, package-matched layout:
+
+```
+src/core/java/com/phantomchain/debug/   shared state machine + crypto — the consensus
+                                        engine (Ledger, StateRootCodec, SrVersion,
+                                        Bridge/Estate/Recovery/BeaconLogic, PhantomCrypto,
+                                        ClusterMember). One home; the Android app adds it
+                                        as a srcDir, the JVM node build compiles it directly.
+src/main/java/com/phantomchain/debug/   node / networking production (NetNode, NodeMain,
+                                        TlsSetup, Genesis, Keys, cluster coordinator, …).
+src/test/java/com/phantomchain/debug/   the standalone main() test + sim drivers (CI gate).
+src/android/                            the app: Android-only classes (MainActivity,
+                                        BioKeystore, WalletStore, Wallet) + the core srcDir.
+```
+
+`core` has no dependency on `main`; `main` and the Android app both depend on `core`.
+The JVM build no longer reaches into the Android tree, so its sourceSet needs no
+Android-only excludes. (The Android APK build needs an SDK to re-verify the added
+`../../core/java` srcDir; the JVM node build + CI are green on the new layout.)
+
+
+
 `Ledger` (~1.6 kLOC) is a single class doing accounts, staking, governance, bridge,
 beacon, estate, clusters/shards, and serialization. That is an audit-surface and
 maintainability problem, and the version gating that drove it was string equality —
@@ -15,10 +40,10 @@ proven, not asserted.
 
 ## Enabler (done)
 
-- **CI + a real build.** `build.gradle` compiles `src/node` + the three pure core
-  classes and `./gradlew runTests` runs the deterministic JVM suite (25 suites);
-  `.github/workflows/ci.yml` gates every push/PR. Decomposition steps are now
-  regression-gated instead of hand-run javac.
+- **CI + a real build.** `build.gradle` compiles the standard layout (`src/core/java`
+  shared engine + `src/main/java` node) and `./gradlew runTests` runs the deterministic
+  JVM suite from `src/test/java`; `.github/workflows/ci.yml` gates every push/PR.
+  Decomposition steps are now regression-gated instead of hand-run javac.
 - **Typed version gating (`SrVersion`).** The first extraction: the `"v1"/"v2"/
   "full"/"m1"` string compares scattered through `Ledger` are replaced by an enum
   with explicit feature predicates (`hasIdentityBond` / `hasCommitteeSize` /

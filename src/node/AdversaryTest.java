@@ -70,9 +70,18 @@ public class AdversaryTest {
         L = new Ledger();
         L.genesisEcon("pc-adv", alloc, vals, stk, idn, ver, vpubs, 0);
 
-        System.out.println("== warm up: advance 6 legit blocks (populate beacon state) ==");
-        for (int i = 0; i < 6; i++) ok("legit block " + (i + 1) + " appends", "appended".equals(advance()));
-        System.out.println("  beacon=" + L.beacon.substring(0, 12) + "  commits=" + L.commits.size());
+        // Warm up until EVERY validator has recorded a beacon commitment. This genesis uses the no-seed
+        // overload (commits start empty), so a fixed-length warm-up leaves some validators without a
+        // commit — and beaconRevealValid() is intentionally lenient (returns true) for a proposer with
+        // no commit (the legacy "unconstrained first reveal" path). If GROUP A then schedules such a
+        // proposer, a garbage reveal is accepted and A1 flakes. Advancing until commits.size()==N puts
+        // every validator in the hardened (committed) state the beacon attacks are meant to probe.
+        System.out.println("== warm up: advance until every validator has a beacon commit ==");
+        boolean allAppended = true; int warm = 0;
+        while (L.commits.size() < N && warm < 100) { allAppended &= "appended".equals(advance()); warm++; }
+        ok("warm-up blocks all append (" + warm + " blocks)", allAppended);
+        ok("warm-up seeded a beacon commit for every validator", L.commits.size() == N);
+        System.out.println("  beacon=" + L.beacon.substring(0, 12) + "  commits=" + L.commits.size() + "  blocks=" + warm);
 
         // ================= GROUP A — BEACON (commit-reveal RANDAO) =================
         System.out.println("== GROUP A: beacon attacks ==");

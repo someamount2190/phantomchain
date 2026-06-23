@@ -11,7 +11,9 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.Executors;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 /**
@@ -53,7 +55,13 @@ final class NodeHttpServer {
             exchange.sendResponseHeaders(r.status, body.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(body); }
         });
-        server.setExecutor(Executors.newCachedThreadPool());   // thread-per-request (matches the former NanoHTTPD model)
+        // Bounded thread-per-request: scales 0..MAX under load and reaps idle threads, but caps at MAX so a
+        // connection flood on the open read port cannot exhaust memory with unbounded threads. Beyond MAX
+        // concurrent handlers, new connections are rejected (backpressure) — a dropped consensus message is
+        // recoverable via gossip/retry. 64 is generous for a node's peer set + read clients.
+        ThreadPoolExecutor pool = new ThreadPoolExecutor(0, 64, 60L, TimeUnit.SECONDS, new SynchronousQueue<>());
+        pool.setThreadFactory(r -> { Thread t = new Thread(r, "http-" + port); t.setDaemon(true); return t; });
+        server.setExecutor(pool);
     }
 
     void start() { server.start(); }

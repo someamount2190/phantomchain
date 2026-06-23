@@ -52,7 +52,7 @@ def deterministicTests = [
     'CommitteeTest', 'SybilTest', 'LivenessTest', 'PartitionTest', 'FuzzTest',
     'AdvAdversaryTest', 'AdversaryTest', 'GenuineAdversaryTest', 'BridgeAdversaryTest',
     'MempoolDosTest', 'TimestampTest', 'ValidatorJoinTest', 'GovernanceAttackTest',
-    'EstateAttackTest', 'RecoveryAttackTest',
+    'EstateAttackTest', 'RecoveryAttackTest', 'VoteLockWedgeTest',
 ]
 
 // Socket-binding integration tests (boot a real NetNode on localhost). Run in a

@@ -31,6 +31,7 @@ import java.util.function.Function;
  */
 final class NodeHttpServer {
     private final HttpsServer server;
+    private final ThreadPoolExecutor pool;
 
     NodeHttpServer(int port, SSLContext ctx, boolean needClientAuth, Function<Req, Resp> dispatch) throws IOException {
         server = HttpsServer.create(new InetSocketAddress(port), 0);
@@ -59,11 +60,11 @@ final class NodeHttpServer {
         // connection flood on the open read port cannot exhaust memory with unbounded threads. Beyond MAX
         // concurrent handlers, new connections are rejected (backpressure) — a dropped consensus message is
         // recoverable via gossip/retry. 64 is generous for a node's peer set + read clients.
-        ThreadPoolExecutor pool = new ThreadPoolExecutor(0, 64, 60L, TimeUnit.SECONDS, new SynchronousQueue<>());
+        pool = new ThreadPoolExecutor(0, 64, 60L, TimeUnit.SECONDS, new SynchronousQueue<>());
         pool.setThreadFactory(r -> { Thread t = new Thread(r, "http-" + port); t.setDaemon(true); return t; });
         server.setExecutor(pool);
     }
 
     void start() { server.start(); }
-    void stop()  { server.stop(0); }
+    void stop()  { server.stop(0); pool.shutdownNow(); }   // stop the HTTP server AND release its thread pool
 }

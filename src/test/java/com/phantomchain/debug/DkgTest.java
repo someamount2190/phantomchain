@@ -1,5 +1,7 @@
 package com.phantomchain.debug;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import java.math.BigInteger;
 import java.security.SecureRandom;
 import java.util.Arrays;
@@ -11,8 +13,6 @@ import java.util.Arrays;
  * knows the aggregate secret, dropout (k-of-n) liveness, and deterministic key derivation.
  */
 public class DkgTest {
-    static int pass = 0, fail = 0;
-    static void ok(String n, boolean c) { if (c) { pass++; System.out.println("  PASS " + n); } else { fail++; System.out.println("  ** FAIL ** " + n); } }
 
     static java.util.List<int[]> subsets(int n, int k) {
         java.util.List<int[]> out = new java.util.ArrayList<>();

@@ -1,5 +1,7 @@
 package com.phantomchain.debug;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import java.util.*;
 
 /**
@@ -8,8 +10,6 @@ import java.util.*;
  * wrong key or a tampered shard is rejected.
  */
 public class ClusterStoreTest {
-    static int pass = 0, fail = 0;
-    static void ok(String n, boolean c) { if (c) { pass++; System.out.println("  PASS " + n); } else { fail++; System.out.println("  ** FAIL ** " + n); } }
     static boolean contains(byte[] hay, byte[] needle) {
         outer: for (int i = 0; i + needle.length <= hay.length; i++) { for (int j = 0; j < needle.length; j++) if (hay[i + j] != needle[j]) continue outer; return true; }
         return false;

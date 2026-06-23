@@ -1,5 +1,7 @@
 package com.phantomchain.debug;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import java.util.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -20,8 +22,6 @@ import org.bouncycastle.pqc.crypto.mldsa.MLDSAPublicKeyParameters;
  *      commits; with one more down it correctly CANNOT (halts rather than commits unsafely).
  */
 public class LivenessTest {
-    static int pass = 0, fail = 0;
-    static void ok(String n, boolean c) { System.out.println((c ? "  PASS " : "  ** FAIL ** ") + n); if (c) pass++; else fail++; }
 
     static int N;
     static MLDSAPrivateKeyParameters[] keys;

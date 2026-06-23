@@ -1,5 +1,7 @@
 package com.phantomchain.debug;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import java.util.*;
 import org.json.*;
 import org.bouncycastle.pqc.crypto.mldsa.MLDSAPrivateKeyParameters;
@@ -13,8 +15,6 @@ import org.bouncycastle.pqc.crypto.mldsa.MLDSAPublicKeyParameters;
  * plus core consensus/tx integrity.
  */
 public class AdversaryTest {
-    static int pass = 0, fail = 0;
-    static void ok(String name, boolean cond) { if (cond) { pass++; System.out.println("  PASS " + name); } else { fail++; System.out.println("  ** FAIL ** " + name); } }
     static void rejects(String name, String result) { ok(name + "  [" + result + "]", result != null && result.startsWith("rejected")); }
 
     static Ledger L;

@@ -1,5 +1,7 @@
 package com.phantomchain.debug;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import java.util.Arrays;
 import java.util.HashSet;
 
@@ -9,7 +11,6 @@ import java.util.HashSet;
  * withdrawing the bond forfeits `verified`. identityBond = 0 must preserve the old vouch-only behavior.
  */
 public class SybilTest {
-    static int pass = 0, fail = 0;
     static void check(String name, boolean cond) { if (cond) { pass++; System.out.println("  PASS " + name); } else { fail++; System.out.println("  FAIL " + name); } }
 
     public static void main(String[] a) {

@@ -1,5 +1,7 @@
 package com.phantomchain.net;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import com.phantomchain.debug.*;
 
 import java.util.*;
@@ -27,8 +29,6 @@ import org.bouncycastle.pqc.crypto.mldsa.MLDSAPublicKeyParameters;
  *                             other's block is rejected as stale.
  */
 public class PartitionTest {
-    static int pass = 0, fail = 0;
-    static void ok(String n, boolean c) { System.out.println((c ? "  PASS " : "  ** FAIL ** ") + n); if (c) pass++; else fail++; }
 
     static int N;
     static MLDSAPrivateKeyParameters[] keys;

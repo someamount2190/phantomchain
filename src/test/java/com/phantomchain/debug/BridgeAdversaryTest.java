@@ -1,5 +1,7 @@
 package com.phantomchain.debug;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import java.util.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -13,8 +15,6 @@ import org.bouncycastle.pqc.crypto.mldsa.MLDSAPublicKeyParameters;
  * reserve conservation, and custodian-only oracle posting. Attacks the real verifyBridgeIn / verifyOracle.
  */
 public class BridgeAdversaryTest {
-    static int pass = 0, fail = 0;
-    static void ok(String n, boolean blocked) { System.out.println((blocked ? "  PASS " : "  ** FAIL ** ") + n); if (blocked) pass++; else fail++; }
 
     static Map<String, MLDSAPublicKeyParameters> pub = new HashMap<>();
     static String[] ids; static MLDSAPrivateKeyParameters[] keys;

@@ -1,5 +1,7 @@
 package com.phantomchain.debug;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import java.security.SecureRandom;
 import java.util.Arrays;
 
@@ -9,8 +11,6 @@ import java.util.Arrays;
  * the key layer (DKG) and the data layer (Reed-Solomon). Exercises the ClusterStore ↔ Dkg seam.
  */
 public class ClusterStoreDkgTest {
-    static int pass = 0, fail = 0;
-    static void ok(String n, boolean c) { if (c) { pass++; System.out.println("  PASS " + n); } else { fail++; System.out.println("  ** FAIL ** " + n); } }
 
     public static void main(String[] a) throws Exception {
         SecureRandom rnd = new SecureRandom();

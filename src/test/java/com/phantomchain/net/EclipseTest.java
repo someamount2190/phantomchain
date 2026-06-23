@@ -1,5 +1,7 @@
 package com.phantomchain.net;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import com.phantomchain.debug.*;
 
 import java.io.ByteArrayOutputStream;
@@ -25,28 +27,7 @@ import org.bouncycastle.pqc.crypto.mldsa.MLDSAPrivateKeyParameters;
  * one is accepted.
  */
 public class EclipseTest {
-    static int pass = 0, fail = 0;
-    static void ok(String n, boolean c) { if (c) { pass++; System.out.println("  PASS " + n); } else { fail++; System.out.println("  ** FAIL ** " + n); } }
-    static int freePort() throws Exception { try (ServerSocket s = new ServerSocket(0)) { return s.getLocalPort(); } }
 
-    /** GET over the given client SSLContext; returns {httpCode, body} (code -1 on handshake/connect failure). */
-    static String[] get(SSLContext ctx, int port, String path) {
-        HttpsURLConnection c = null;
-        try {
-            c = (HttpsURLConnection) new URL("https://127.0.0.1:" + port + path).openConnection();
-            c.setSSLSocketFactory(ctx.getSocketFactory());
-            c.setHostnameVerifier((h, s) -> true);
-            c.setConnectTimeout(4000); c.setReadTimeout(4000);
-            int code = c.getResponseCode();
-            InputStream in = code < 400 ? c.getInputStream() : c.getErrorStream();
-            ByteArrayOutputStream bo = new ByteArrayOutputStream();
-            if (in != null) { byte[] buf = new byte[4096]; int n; while ((n = in.read(buf)) > 0) bo.write(buf, 0, n); }
-            return new String[]{String.valueOf(code), bo.toString("UTF-8")};
-        } catch (Exception e) {
-            return new String[]{"-1", ""};
-        } finally { if (c != null) c.disconnect(); }
-    }
-    static String enc(String s) throws Exception { return URLEncoder.encode(s, "UTF-8"); }
 
     public static void main(String[] a) throws Exception {
         File base = new File(System.getProperty("java.io.tmpdir"), "pc-eclipse-" + System.nanoTime());
@@ -124,8 +105,4 @@ public class EclipseTest {
         System.exit(fail == 0 ? 0 : 1);
     }
 
-    static JSONObject val(MLDSAPrivateKeyParameters k) throws Exception {
-        return new JSONObject().put("pubkey", Keys.pubHex(k)).put("stake", 1_000_000L).put("identity", 1L)
-            .put("verified", true).put("alloc", 1_000_000L).put("beaconCommit0", Ledger.beaconCommit0For(k.getEncoded()));
-    }
 }

@@ -1,5 +1,7 @@
 package com.phantomchain.net;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import com.phantomchain.debug.*;
 
 import java.io.ByteArrayOutputStream;
@@ -28,11 +30,7 @@ import org.bouncycastle.pqc.crypto.mldsa.MLDSAPrivateKeyParameters;
  * /bridge/out /sync), and the gossip/consensus POST endpoints were not. They are now.
  */
 public class RpcEndpointTest {
-    static int pass = 0, fail = 0;
-    static void ok(String n, boolean c) { if (c) { pass++; System.out.println("  PASS " + n); } else { fail++; System.out.println("  ** FAIL ** " + n); } }
 
-    static int freePort() throws Exception { try (ServerSocket s = new ServerSocket(0)) { return s.getLocalPort(); } }
-    static String enc(String s) throws Exception { return URLEncoder.encode(s, "UTF-8"); }
 
     static SSLContext CTX; static int PORT;
     static String[] req(String method, String path, String reqBody) {
@@ -150,8 +148,4 @@ public class RpcEndpointTest {
         System.exit(fail == 0 ? 0 : 1);
     }
 
-    static JSONObject val(MLDSAPrivateKeyParameters k) throws Exception {
-        return new JSONObject().put("pubkey", Keys.pubHex(k)).put("stake", 1_000_000L).put("identity", 1L)
-                .put("verified", true).put("alloc", 1_000_000L).put("beaconCommit0", Ledger.beaconCommit0For(k.getEncoded()));
-    }
 }

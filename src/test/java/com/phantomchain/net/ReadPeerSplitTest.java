@@ -1,5 +1,7 @@
 package com.phantomchain.net;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import com.phantomchain.debug.*;
 
 import java.io.File;
@@ -22,8 +24,6 @@ import fi.iki.elonen.NanoHTTPD;
  * getServerSocketFactory()/makeSecure wiring NetNode uses in production.
  */
 public class ReadPeerSplitTest {
-    static int pass = 0, fail = 0;
-    static void ok(String n, boolean c) { if (c) { pass++; System.out.println("  PASS " + n); } else { fail++; System.out.println("  ** FAIL ** " + n); } }
 
     /** HTTP status code, or -1 on TLS/transport failure (handshake rejected). */
     static int code(SSLContext c, int port, String path) {
@@ -39,7 +39,6 @@ public class ReadPeerSplitTest {
         finally { if (con != null) con.disconnect(); }
     }
 
-    static int freePort() throws Exception { try (ServerSocket s = new ServerSocket(0)) { return s.getLocalPort(); } }
 
     public static void main(String[] a) throws Exception {
         File dir = new File(System.getProperty("java.io.tmpdir"), "pc-split-" + System.nanoTime());

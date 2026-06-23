@@ -1,5 +1,7 @@
 package com.phantomchain.net;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import com.phantomchain.debug.*;
 
 import java.util.*;
@@ -22,11 +24,6 @@ import org.bouncycastle.pqc.crypto.mldsa.MLDSAPublicKeyParameters;
  * Cluster M-of-N forgery is covered by ClusterTest (25/25); equivocation->SLASH by AdversaryTest.
  */
 public class AdvAdversaryTest {
-    static int pass = 0, fail = 0;
-    static void ok(String name, boolean blocked) {
-        System.out.println((blocked ? "  PASS " : "  ** FAIL ** ") + name);
-        if (blocked) pass++; else fail++;
-    }
 
     static int N;
     static MLDSAPrivateKeyParameters[] keys;

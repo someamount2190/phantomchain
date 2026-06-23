@@ -1,5 +1,7 @@
 package com.phantomchain.debug;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import java.util.Arrays;
 import org.bouncycastle.crypto.generators.Argon2BytesGenerator;
 import org.bouncycastle.crypto.modes.ChaCha20Poly1305;
@@ -20,8 +22,6 @@ import org.bouncycastle.pqc.crypto.mldsa.MLDSAPrivateKeyParameters;
  * A PASS means the implementation produces the EXACT bytes the standard specifies.
  */
 public class KnownAnswerTest {
-    static int pass = 0, fail = 0;
-    static void ok(String n, boolean c) { System.out.println((c ? "  PASS " : "  ** FAIL ** ") + n); if (c) pass++; else fail++; }
     static void kat(String n, byte[] got, String expectHex) {
         boolean c = PhantomCrypto.hex(got).equals(expectHex.toLowerCase());
         System.out.println((c ? "  PASS " : "  ** FAIL ** ") + n + (c ? "" : "\n        got      " + PhantomCrypto.hex(got) + "\n        expected " + expectHex.toLowerCase()));

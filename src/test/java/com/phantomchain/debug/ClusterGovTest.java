@@ -1,5 +1,7 @@
 package com.phantomchain.debug;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import java.util.*;
 import org.json.JSONArray;
 import org.bouncycastle.pqc.crypto.mldsa.MLDSAPrivateKeyParameters;
@@ -12,8 +14,6 @@ import org.bouncycastle.pqc.crypto.mldsa.MLDSAPrivateKeyParameters;
  *     and its members are freed.
  */
 public class ClusterGovTest {
-    static int pass = 0, fail = 0;
-    static void ok(String n, boolean c) { if (c) { pass++; System.out.println("  PASS " + n); } else { fail++; System.out.println("  ** FAIL ** " + n); } }
     static MLDSAPrivateKeyParameters key() { return PhantomCrypto.randomDeviceKey(); }
 
     static Ledger mk(long[] stake) throws Exception {

@@ -1,5 +1,7 @@
 package com.phantomchain.debug;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import java.util.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -15,8 +17,6 @@ import org.bouncycastle.pqc.crypto.mldsa.MLDSAPrivateKeyParameters;
  * backward compatibility (an empty-cluster chain hashes exactly as before).
  */
 public class ClusterTest {
-    static int pass = 0, fail = 0;
-    static void ok(String n, boolean c) { if (c) { pass++; System.out.println("  PASS " + n); } else { fail++; System.out.println("  ** FAIL ** " + n); } }
 
     static MLDSAPrivateKeyParameters key() { return PhantomCrypto.randomDeviceKey(); }
 

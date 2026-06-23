@@ -1,5 +1,7 @@
 package com.phantomchain.debug;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import java.util.*;
 import org.bouncycastle.pqc.crypto.mldsa.MLDSAPrivateKeyParameters;
 
@@ -13,8 +15,6 @@ import org.bouncycastle.pqc.crypto.mldsa.MLDSAPrivateKeyParameters;
  *            tells you the (f, k) regime where it is honest to turn this on.
  */
 public class CommitteeTest {
-    static int pass = 0, fail = 0;
-    static void ok(String n, boolean c) { if (c) { pass++; System.out.println("  PASS " + n); } else { fail++; System.out.println("  ** FAIL ** " + n); } }
 
     static Ledger mk(int n, long[] stake) throws Exception {
         LinkedHashMap<String, Long> alloc = new LinkedHashMap<>(); List<String> vals = new ArrayList<>();

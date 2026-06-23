@@ -1,5 +1,7 @@
 package com.phantomchain.debug;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import java.math.BigInteger;
 import java.security.SecureRandom;
 import java.util.*;
@@ -20,8 +22,6 @@ import org.bouncycastle.pqc.crypto.mldsa.MLDSAPublicKeyParameters;
  *   E. Feldman VSS edge cases — an identity (zero) commitment, and a tampered commitment, are handled.
  */
 public class CryptoBreakTest {
-    static int pass = 0, fail = 0;
-    static void ok(String n, boolean c) { System.out.println((c ? "  PASS " : "  ** FAIL ** ") + n); if (c) pass++; else fail++; }
     static final SecureRandom RND = new SecureRandom();
     static Map<String, MLDSAPublicKeyParameters> PUB = new HashMap<>();
 

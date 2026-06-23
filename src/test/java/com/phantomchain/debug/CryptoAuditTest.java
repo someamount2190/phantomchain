@@ -1,5 +1,7 @@
 package com.phantomchain.debug;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import java.math.BigInteger;
 import java.security.SecureRandom;
 import java.util.*;
@@ -13,8 +15,6 @@ import org.bouncycastle.pqc.crypto.mldsa.MLDSAPublicKeyParameters;
  *   DKG (Shamir + Feldman VSS). Each PASS confirms a property; FINDINGs are printed with their analysis.
  */
 public class CryptoAuditTest {
-    static int pass = 0, fail = 0;
-    static void ok(String n, boolean c) { System.out.println((c ? "  PASS " : "  ** FAIL ** ") + n); if (c) pass++; else fail++; }
     static final SecureRandom RND = new SecureRandom();
 
     public static void main(String[] a) throws Exception {

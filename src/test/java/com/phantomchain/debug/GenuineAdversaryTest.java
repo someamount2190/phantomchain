@@ -1,5 +1,7 @@
 package com.phantomchain.debug;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import java.util.*;
 import org.json.*;
 import org.bouncycastle.pqc.crypto.mldsa.MLDSAPrivateKeyParameters;

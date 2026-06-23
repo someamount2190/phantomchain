@@ -1,5 +1,7 @@
 package com.phantomchain.debug;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import java.util.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -14,8 +16,6 @@ import org.bouncycastle.pqc.crypto.mldsa.MLDSAPublicKeyParameters;
  * accepted) with its (currently low) impact and recommendation.
  */
 public class TimestampTest {
-    static int pass = 0, fail = 0;
-    static void ok(String n, boolean c) { System.out.println((c ? "  PASS " : "  ** FAIL ** ") + n); if (c) pass++; else fail++; }
     static int N; static MLDSAPrivateKeyParameters[] keys; static String[] ids; static long[] ctr;
     static Map<String, MLDSAPublicKeyParameters> pub = new HashMap<>();
 

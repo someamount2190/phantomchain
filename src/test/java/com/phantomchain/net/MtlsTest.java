@@ -1,5 +1,7 @@
 package com.phantomchain.net;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import com.phantomchain.debug.*;
 
 import java.io.File;
@@ -26,8 +28,6 @@ import fi.iki.elonen.NanoHTTPD;
  * getServerSocketFactory() — the same override NetNode uses in production.
  */
 public class MtlsTest {
-    static int pass = 0, fail = 0;
-    static void ok(String n, boolean c) { if (c) { pass++; System.out.println("  PASS " + n); } else { fail++; System.out.println("  ** FAIL ** " + n); } }
 
     /** GET https://127.0.0.1:port/x with the given client SSLContext; true iff it returns 200. */
     static boolean get(SSLContext c, int port) {
@@ -55,7 +55,6 @@ public class MtlsTest {
         return tmf;
     }
 
-    static int freePort() throws Exception { try (ServerSocket s = new ServerSocket(0)) { return s.getLocalPort(); } }
 
     public static void main(String[] a) throws Exception {
         File base = new File(System.getProperty("java.io.tmpdir"), "pc-mtls-" + System.nanoTime());

@@ -1,5 +1,7 @@
 package com.phantomchain.debug;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import java.util.*;
 
 import org.bouncycastle.pqc.crypto.mldsa.MLDSAPrivateKeyParameters;
@@ -18,7 +20,6 @@ import org.bouncycastle.pqc.crypto.mldsa.MLDSAParameters;
  * Run with arg "capture" to print the current roots (used to (re)pin GOLDEN).
  */
 public class GoldenStateRootTest {
-    static int pass = 0, fail = 0;
 
     static Ledger build(String ver, boolean mutate) throws Exception {
         int n = 3;

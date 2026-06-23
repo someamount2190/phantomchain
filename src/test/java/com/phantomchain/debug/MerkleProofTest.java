@@ -1,5 +1,7 @@
 package com.phantomchain.debug;
 
+import static com.phantomchain.debug.TestKit.*;
+
 import java.util.LinkedHashMap;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -13,11 +15,6 @@ import org.json.JSONObject;
  * than a JVM launch flag.
  */
 public class MerkleProofTest {
-    static int pass = 0, fail = 0;
-    static void ok(String name, boolean cond) {
-        System.out.println((cond ? "  PASS " : "  ** FAIL ** ") + name);
-        if (cond) pass++; else fail++;
-    }
 
     static Ledger fresh(String ver) throws Exception {
         Ledger L = new Ledger();

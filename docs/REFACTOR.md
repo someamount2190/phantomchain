@@ -1,27 +1,32 @@
 # Decomposition plan — breaking up `Ledger`
 
-## File architecture (done)
+## File architecture + package boundary (done)
 
-The flat `src/node/` (51 files mixing production + tests) and the shared engine buried
-in the Android app tree are gone. Standard, package-matched layout:
+Two enforced Java packages, so the network layer can only touch the engine's **public
+facade** (`Ledger` + `PhantomCrypto`); the 10 feature-logic modules + `StateRootCodec`
+are package-private and **unreachable from `net`** — the compiler enforces it.
 
 ```
-src/core/java/com/phantomchain/debug/   shared state machine + crypto — the consensus
-                                        engine (Ledger, StateRootCodec, SrVersion,
-                                        Bridge/Estate/Recovery/BeaconLogic, PhantomCrypto,
-                                        ClusterMember). One home; the Android app adds it
-                                        as a srcDir, the JVM node build compiles it directly.
-src/main/java/com/phantomchain/debug/   node / networking production (NetNode, NodeMain,
-                                        TlsSetup, Genesis, Keys, cluster coordinator, …).
-src/test/java/com/phantomchain/debug/   the standalone main() test + sim drivers (CI gate).
-src/android/                            the app: Android-only classes (MainActivity,
-                                        BioKeystore, WalletStore, Wallet) + the core srcDir.
+com.phantomchain.debug  (the ENGINE — public facade Ledger; private modules)
+  src/core/java/…/debug/   Android-shared core: Ledger + StateRootCodec + SrVersion +
+                           Bridge/Estate/Recovery/Beacon/Governance/Economics/ClusterLogic +
+                           ValidatorSelection + PhantomCrypto + ClusterMember
+  src/main/java/…/debug/   JVM-only engine: Dkg, ClusterStore, ReedSolomon, Keys, Wallet
+                           (package debug, in the JVM build, NOT in the Android srcDir)
+
+com.phantomchain.net    (the NETWORK layer — depends on the engine facade)
+  src/main/java/…/net/     NetNode, NodeMain, NodeConfig, Genesis, TlsSetup,
+                           Cluster{Consensus,Coordinator}, BridgeCustodian, WalletMain, PatchGenesis
+
+  src/test/java/…/debug/   29 engine tests   |   …/net/  7 NetNode tests
+src/android/               the app: Android-only classes + the core srcDir
 ```
 
-`core` has no dependency on `main`; `main` and the Android app both depend on `core`.
-The JVM build no longer reaches into the Android tree, so its sourceSet needs no
-Android-only excludes. (The Android APK build needs an SDK to re-verify the added
-`../../core/java` srcDir; the JVM node build + CI are green on the new layout.)
+`net` → `debug` (one-way). The engine modules are private implementation: any attempt
+to reach them from `net` is a compile error (caught live during the split, e.g.
+`LargeScaleSim` had to route `ValidatorSelection.WEIGHT_CAP` through the `Ledger.WEIGHT_CAP`
+facade). `Ledger` exposes ~100 public members as its read/command API. (The Android APK
+build needs an SDK to re-verify; the JVM build + CI are green on the new layout.)
 
 
 

@@ -57,13 +57,18 @@ def deterministicTests = [
 // separate task so a CI port/timing hiccup doesn't mask a core-logic regression.
 def integrationTests = ['MtlsTest', 'ReadPeerSplitTest', 'EclipseTest']
 
+// Tests that boot a NetNode live in the com.phantomchain.net package; the rest are engine
+// tests in com.phantomchain.debug. (Net can only see the engine's public Ledger facade.)
+def netTests = ['AdvAdversaryTest', 'EclipseTest', 'FuzzTest', 'LargeScaleSim', 'MtlsTest', 'ReadPeerSplitTest', 'PartitionTest'] as Set
+
 def runSuite = { List names ->
     def failures = []
     names.each { t ->
+        def pkg = netTests.contains(t) ? 'com.phantomchain.net' : 'com.phantomchain.debug'
         def so = new ByteArrayOutputStream()
         def r = javaexec {
             classpath = sourceSets.test.runtimeClasspath
-            mainClass = "com.phantomchain.debug.${t}"
+            mainClass = "${pkg}.${t}"
             standardOutput = so
             errorOutput = so
             ignoreExitValue = true

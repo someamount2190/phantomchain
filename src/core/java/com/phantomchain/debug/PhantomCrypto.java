@@ -144,7 +144,7 @@ public class PhantomCrypto {
         return aead(false, K, nonce, ct);
     }
 
-    static byte[] aead(boolean enc, byte[] key, byte[] nonce, byte[] in) {
+    public static byte[] aead(boolean enc, byte[] key, byte[] nonce, byte[] in) {
         try {
             ChaCha20Poly1305 c = new ChaCha20Poly1305();
             c.init(enc, new ParametersWithIV(new KeyParameter(key), nonce));

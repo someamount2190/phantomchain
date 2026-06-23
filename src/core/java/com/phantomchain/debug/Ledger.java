@@ -22,24 +22,24 @@ public class Ledger {
 
     static final String ZERO32 = "0000000000000000000000000000000000000000000000000000000000000000";
 
-    static class Account { long balance; long nonce; }
+    public static class Account { long balance; long nonce; }
 
     String ownerId;
-    String chainId = "";   // domain-separation tag; every signed payload (tx, action, block, vote) commits to it
-    final Map<String, Account> accounts = new HashMap<>();
-    final List<JSONObject> chain = new ArrayList<>();
-    final List<JSONObject> mempool = new ArrayList<>();
-    final java.util.Set<String> slashed = new java.util.HashSet<>();   // validator IDs proven to have double-signed
+    public String chainId = "";   // domain-separation tag; every signed payload (tx, action, block, vote) commits to it
+    public final Map<String, Account> accounts = new HashMap<>();
+    public final List<JSONObject> chain = new ArrayList<>();
+    public final List<JSONObject> mempool = new ArrayList<>();
+    public final java.util.Set<String> slashed = new java.util.HashSet<>();   // validator IDs proven to have double-signed
     // ---- mining economics (simulation) ----
-    final Map<String, Long> stake = new HashMap<>();              // id -> bonded stake (PROVABLE: on-chain)
-    final Map<String, Long> identity = new HashMap<>();           // id -> enrolled-human count (REAL: needs personhood proof)
-    final java.util.List<String> validators = new ArrayList<>();  // index-ordered ids; APPEND-ONLY so indices/QC stay valid
+    public final Map<String, Long> stake = new HashMap<>();              // id -> bonded stake (PROVABLE: on-chain)
+    public final Map<String, Long> identity = new HashMap<>();           // id -> enrolled-human count (REAL: needs personhood proof)
+    public final java.util.List<String> validators = new ArrayList<>();  // index-ordered ids; APPEND-ONLY so indices/QC stay valid
     // ---- commit-reveal randomness beacon (RANDAO): proposer reveals a value it committed in its prior block ----
-    String beacon = ZERO32;                                       // accumulated unbiasable-ish randomness
-    final Map<String, String> commits = new HashMap<>();          // validator id -> its outstanding reveal commitment
-    final Map<String, String> valPubs = new HashMap<>();          // validator id -> consensus pubkey hex (genesis + joined)
-    final Map<String, String> regions = new HashMap<>();          // validator id -> region_id (opt-in geo coverage premium)
-    final Map<String, String> tiers = new HashMap<>();            // validator id -> "light" (absent/"heavy" = full archived-body storage)
+    public String beacon = ZERO32;                                       // accumulated unbiasable-ish randomness
+    public final Map<String, String> commits = new HashMap<>();          // validator id -> its outstanding reveal commitment
+    public final Map<String, String> valPubs = new HashMap<>();          // validator id -> consensus pubkey hex (genesis + joined)
+    public final Map<String, String> regions = new HashMap<>();          // validator id -> region_id (opt-in geo coverage premium)
+    public final Map<String, String> tiers = new HashMap<>();            // validator id -> "light" (absent/"heavy" = full archived-body storage)
     // ---- cluster mining (spec §9): a cluster of M-of-N enrolled member devices acts as ONE validator;
     // its block "signature" is a bundle of >=threshold member ML-DSA sigs, and epoch rewards are split
     // DIRECTLY to each member identity (no operator intermediary, §9.6). Threshold-Dilithium aggregation
@@ -47,21 +47,21 @@ public class Ledger {
     final Map<String, JSONObject> clusters = new HashMap<>();      // clusterId -> {members:[id...], memberPubs:{id->pubHex}, threshold:M}
     final java.util.Set<String> collapsed = new java.util.HashSet<>();   // clusters disbanded (§9.7): excluded from consensus, members freed to reform
     // ---- cross-chain bridge (on-chain side; the M-of-N custodian HSM service is the explicit OFF-chain trust boundary) ----
-    final Map<String, String> custodians = new HashMap<>();        // custodian id -> pubkey hex
-    int bridgeThreshold = 1;                                       // M-of-N custodian attestations required (governable)
+    public final Map<String, String> custodians = new HashMap<>();        // custodian id -> pubkey hex
+    public int bridgeThreshold = 1;                                       // M-of-N custodian attestations required (governable)
     final java.util.Set<String> bridgeProcessed = new java.util.HashSet<>();   // external tx ids already minted (replay guard)
-    static final String BRIDGE_RESERVE = "BRIDGE_RESERVE";        // reserve account funds inbound releases
-    final java.util.List<JSONObject> bridgeOuts = new ArrayList<>();           // recent outbound locks (custodian observability)
-    final Map<String, Map<String, Long>> oracleRates = new HashMap<>();        // pair -> {custodian id -> rate} (median = price)
+    public static final String BRIDGE_RESERVE = "BRIDGE_RESERVE";        // reserve account funds inbound releases
+    public final java.util.List<JSONObject> bridgeOuts = new ArrayList<>();           // recent outbound locks (custodian observability)
+    public final Map<String, Map<String, Long>> oracleRates = new HashMap<>();        // pair -> {custodian id -> rate} (median = price)
     int minValidatorStake = 500_000;                              // min bonded stake to join the validator set (governable)
     long identityBond = 0;                                        // stake an identity must lock to be admitted to `verified` (governable; 0 = vouch-only). Sybil-cost: N identities cost N×bond.
-    int committeeSize = 0;                                        // 0 = full validator set signs (deterministic BFT); >0 = beacon-sortitioned signing committee of this size (probabilistic safety, only meaningful at large N)
+    public int committeeSize = 0;                                        // 0 = full validator set signs (deterministic BFT); >0 = beacon-sortitioned signing committee of this size (probabilistic safety, only meaningful at large N)
     // State-root serialization version. Travels WITH the chain (set at genesis, persisted in the snapshot)
     // instead of a JVM launch flag, so a node can never silently fork by being started without the right
     // flag. "v1"/"v2" describe historical (shorter) tails; "full" (default) is the current complete
     // serialization; "m1" additionally binds the authenticated account Merkle root into the state root
     // (opt-in: makes light-client account proofs trustless without changing existing chains).
-    String srVersion = "full";
+    public String srVersion = "full";
     /** Hardened chains make the app-hash (prevStateRoot/prevShardsRoot) MANDATORY in every block, closing
      *  the bypass-by-omission where optString(...,null) silently skips the check when the field is absent.
      *  Gated on srVersion so legacy "full"/"v1"/"v2" chains (incl. the live testnet, which may hold pre-
@@ -72,55 +72,55 @@ public class Ledger {
      *  version gating goes through this (never raw String.equals on srVersion) so the state-root tail
      *  can't silently diverge on a typo'd or missed compare. See {@link SrVersion}. */
     SrVersion srv() { return SrVersion.parse(srVersion); }
-    long totalMinted = 0;
-    long burned = 0;                          // total tokens burned (fee burn + slashing) — deflationary sink
-    static final int EPOCH_LEN = 3;
+    public long totalMinted = 0;
+    public long burned = 0;                          // total tokens burned (fee burn + slashing) — deflationary sink
+    public static final int EPOCH_LEN = 3;
     static final int PROPOSER_BONUS = 2;      // extra contribution units for proposing
-    static final int  RETAIN_RECENT = 8;      // recent block bodies kept fully; older unassigned bodies pruned
+    public static final int  RETAIN_RECENT = 8;      // recent block bodies kept fully; older unassigned bodies pruned
     static final int  MAX_MEMPOOL = 10000;    // DoS bound: reject new txs past this
     static final int  MAX_BLOCK_TXS = 1000;   // DoS bound: cap txs packed per block
     static final long MIN_FEE = 1;            // anti-spam: transfers must pay at least this
     // ---- production economics: governable parameters (changeable via on-chain governance) ----
-    long blockReward = 100;                   // initial per-block emission; halves every halvingBlocks
-    int  halvingBlocks = 12;                  // emission halving period (blocks)
-    long maxSupply = 10_000_000L;             // hard emission cap
-    int  feeBurnBps = 5000;                   // basis points of tx fees burned (remainder -> block proposer)
-    int  slashBps = 10000;                    // basis points of stake burned on equivocation (10000 = 100%)
-    int  jailBlocks = 10;                     // jail duration (blocks) after a slash, before unjail is allowed
-    int  unbondingBlocks = 10;               // lock period (blocks) before unbonded stake becomes liquid
+    public long blockReward = 100;                   // initial per-block emission; halves every halvingBlocks
+    public int  halvingBlocks = 12;                  // emission halving period (blocks)
+    public long maxSupply = 10_000_000L;             // hard emission cap
+    public int  feeBurnBps = 5000;                   // basis points of tx fees burned (remainder -> block proposer)
+    public int  slashBps = 10000;                    // basis points of stake burned on equivocation (10000 = 100%)
+    public int  jailBlocks = 10;                     // jail duration (blocks) after a slash, before unjail is allowed
+    public int  unbondingBlocks = 10;               // lock period (blocks) before unbonded stake becomes liquid
     // ---- staking / slashing / governance state ----
     final Map<String, Long> jailed = new HashMap<>();          // id -> height at which unjail becomes allowed
     final List<JSONObject> unbonding = new ArrayList<>();      // [{actor, amount, mature}] pending unbonds
-    final Map<String, JSONObject> proposals = new HashMap<>(); // propId -> {proposer,param,value,deadline,executed,votes:{voter:choice}}
+    public final Map<String, JSONObject> proposals = new HashMap<>(); // propId -> {proposer,param,value,deadline,executed,votes:{voter:choice}}
     // ---- identity != key: durable on-chain identity with rotatable device keys + guardian recovery ----
-    final Map<String, JSONObject> identities = new HashMap<>(); // identity_id -> {root, devices:[hex], guardians:[id], threshold, rotNonce}
+    public final Map<String, JSONObject> identities = new HashMap<>(); // identity_id -> {root, devices:[hex], guardians:[id], threshold, rotNonce}
     // ---- estate / inheritance: only an OUTGOING (fingerprint) action resets the clock ----
     final Map<String, Long> lastActive = new HashMap<>();      // id -> height of last outgoing action
     final Map<String, String> beneficiary = new HashMap<>();   // id -> estate beneficiary id
     long estateInactivity = 10;                                // blocks of inactivity before estate is claimable (governable; small for testnet)
     // ---- personhood (social web-of-trust; PLUGGABLE: admission to 'verified' is by VOUCH tx today,
     //      swap for a biometric-uniqueness proof tx in future without touching consensus) ----
-    final java.util.Set<String> verified = new java.util.HashSet<>();      // personhood-verified human IDs
-    final Map<String, java.util.Set<String>> vouches = new HashMap<>();    // candidate -> set of vouchers
-    static final int VOUCH_THRESHOLD = 2;                                  // vouches from verified humans to admit
+    public final java.util.Set<String> verified = new java.util.HashSet<>();      // personhood-verified human IDs
+    public final Map<String, java.util.Set<String>> vouches = new HashMap<>();    // candidate -> set of vouchers
+    public static final int VOUCH_THRESHOLD = 2;                                  // vouches from verified humans to admit
 
     boolean initialized() { return ownerId != null && !chain.isEmpty(); }
-    int height() { return chain.isEmpty() ? -1 : chain.size() - 1; }
-    String lastHash() throws Exception { return chain.isEmpty() ? ZERO32 : chain.get(chain.size() - 1).getString("hash"); }
+    public int height() { return chain.isEmpty() ? -1 : chain.size() - 1; }
+    public String lastHash() throws Exception { return chain.isEmpty() ? ZERO32 : chain.get(chain.size() - 1).getString("hash"); }
     // ---- ledger-history sharding: a block keeps a full body or is pruned to header-only ----
-    boolean hasBody(int h) { return h >= 0 && h < chain.size() && chain.get(h).has("txs"); }
-    void pruneBlock(int h) throws Exception { chain.get(h).remove("txs"); chain.get(h).put("pruned", true); }   // keep header (hash/qc/proposer/roots)
-    void pruneBlockRS(int h, int idx, byte[] shard) throws Exception {   // drop the full body, retain only THIS node's RS shard
+    public boolean hasBody(int h) { return h >= 0 && h < chain.size() && chain.get(h).has("txs"); }
+    public void pruneBlock(int h) throws Exception { chain.get(h).remove("txs"); chain.get(h).put("pruned", true); }   // keep header (hash/qc/proposer/roots)
+    public void pruneBlockRS(int h, int idx, byte[] shard) throws Exception {   // drop the full body, retain only THIS node's RS shard
         chain.get(h).remove("txs");
         chain.get(h).put("pruned", true).put("rsIdx", idx).put("rsShard", PhantomCrypto.hex(shard));
     }
     /** Recompute a block's committed hash from its body — used to verify a reconstructed body. */
-    String blockHash(JSONObject b) throws Exception {
+    public String blockHash(JSONObject b) throws Exception {
         String preimage = chainId + "|" + b.getInt("height") + "|" + b.getString("prevHash") + "|"
                 + b.getJSONArray("txs").toString() + "|" + b.getLong("ts");
         return PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8(preimage)));
     }
-    long balanceOf(String id) { Account a = accounts.get(id); return a == null ? 0 : a.balance; }
+    public long balanceOf(String id) { Account a = accounts.get(id); return a == null ? 0 : a.balance; }
     long nonceOf(String id) { Account a = accounts.get(id); return a == null ? 0 : a.nonce; }
 
     /** Genesis: credit the owner and seal block 0 (coinbase). */
@@ -143,13 +143,13 @@ public class Ledger {
 
     /** Stable tx id for dedup/mempool removal: the signature if present, else a hash of the tx body
      *  (RECOVER carries only per-guardian approval sigs, no single top-level sig). */
-    static String txId(JSONObject tx) {
+    public static String txId(JSONObject tx) {
         String sig = tx.optString("sig", "");
         return sig.isEmpty() ? PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8(tx.toString()))) : sig;
     }
 
     /** Canonical signing string for a transfer (fee is part of the signed payload). */
-    static String txCanon(String cid, String from, String to, long amount, long fee, long nonce) {
+    public static String txCanon(String cid, String from, String to, long amount, long fee, long nonce) {
         return cid + "|" + from + "|" + to + "|" + amount + "|" + fee + "|" + nonce;
     }
 
@@ -243,9 +243,9 @@ public class Ledger {
         return ks;
     }
 
-    String toJson() throws Exception { return StateRootCodec.toJson(this); }
+    public String toJson() throws Exception { return StateRootCodec.toJson(this); }
 
-    void fromJson(String s) throws Exception { StateRootCodec.fromJson(this, s); }
+    public void fromJson(String s) throws Exception { StateRootCodec.fromJson(this, s); }
 
     // ===== multi-node (round-robin proposer) =====
     // State changes ONLY on block commit; mempool holds validated-pending txs (projected over committed state).
@@ -276,7 +276,7 @@ public class Ledger {
         return m;
     }
 
-    JSONObject buildTxProjected(String from, String to, long amount, long fee, MLDSAPrivateKeyParameters key) throws Exception {
+    public JSONObject buildTxProjected(String from, String to, long amount, long fee, MLDSAPrivateKeyParameters key) throws Exception {
         long nonce = proj(from, mempoolProjection())[1];
         byte[] sig = PhantomCrypto.sign(key, PhantomCrypto.utf8(txCanon(chainId, from, to, amount, fee, nonce)));
         return new JSONObject().put("from", from).put("to", to).put("amount", amount).put("cid", chainId)
@@ -284,7 +284,7 @@ public class Ledger {
                 .put("sig", PhantomCrypto.hex(sig));
     }
 
-    String addToMempool(JSONObject tx, Map<String, MLDSAPublicKeyParameters> pubById) throws Exception {
+    public String addToMempool(JSONObject tx, Map<String, MLDSAPublicKeyParameters> pubById) throws Exception {
         if (mempool.size() >= MAX_MEMPOOL) return "rejected: mempool full";
         if (isTransfer(tx) && tx.optLong("fee", 0) < MIN_FEE) return "rejected: fee below minimum";   // anti-spam
         Map<String, long[]> m = mempoolProjection();
@@ -306,7 +306,7 @@ public class Ledger {
                 .put("ts", ts).put("hash", hash).put("sig", PhantomCrypto.hex(sig)).put("proposer", proposerIndex);
     }
 
-    String commitBlock(JSONObject b, Map<String, MLDSAPublicKeyParameters> pubById) throws Exception {
+    public String commitBlock(JSONObject b, Map<String, MLDSAPublicKeyParameters> pubById) throws Exception {
         if (b.getInt("height") != chain.size()) return "rejected: bad height (have " + chain.size() + ")";
         if (!b.getString("prevHash").equals(lastHash())) return "rejected: bad prevHash";
         String preimage = chainId + "|" + b.getInt("height") + "|" + b.getString("prevHash") + "|"
@@ -493,7 +493,7 @@ public class Ledger {
     // ===== quorum-certificate support =====
 
     /** Build an unsigned block proposal (hash over header+txs; quorum signs the hash). */
-    JSONObject buildProposal(int proposerIndex, long ts) throws Exception {
+    public JSONObject buildProposal(int proposerIndex, long ts) throws Exception {
         JSONArray txs = new JSONArray();
         for (int ti = 0; ti < mempool.size() && ti < MAX_BLOCK_TXS; ti++) txs.put(mempool.get(ti));
         int height = chain.size();
@@ -506,7 +506,7 @@ public class Ledger {
     }
 
     /** Read-only: does this proposal link to our head, hash recompute, and build on our exact state? */
-    boolean proposalLinks(JSONObject b) throws Exception {
+    public boolean proposalLinks(JSONObject b) throws Exception {
         if (b.getInt("height") != chain.size()) return false;
         if (!b.getString("prevHash").equals(lastHash())) return false;
         String preimage = chainId + "|" + b.getInt("height") + "|" + b.getString("prevHash") + "|"
@@ -527,7 +527,7 @@ public class Ledger {
     }
 
     /** Read-only: are all txs in this block valid against committed state? (used when voting) */
-    boolean txsValid(JSONObject b, Map<String, MLDSAPublicKeyParameters> pubById) throws Exception {
+    public boolean txsValid(JSONObject b, Map<String, MLDSAPublicKeyParameters> pubById) throws Exception {
         JSONArray txs = b.getJSONArray("txs");
         Map<String, long[]> m = new HashMap<>();
         for (int i = 0; i < txs.length(); i++)
@@ -536,7 +536,7 @@ public class Ledger {
     }
 
     /** Equivocation evidence: two valid signatures by the same validator over two different hashes. */
-    static boolean verifySlash(JSONObject tx, Map<String, MLDSAPublicKeyParameters> pubById) throws Exception {
+    public static boolean verifySlash(JSONObject tx, Map<String, MLDSAPublicKeyParameters> pubById) throws Exception {
         String valId = tx.getString("valId");
         String ha = tx.getString("ha"), hb = tx.getString("hb");
         if (ha.equals(hb)) return false;
@@ -556,7 +556,7 @@ public class Ledger {
             verified.add(cand);
     }
 
-    JSONObject buildVouchTx(String voucher, String candidate, MLDSAPrivateKeyParameters key) throws Exception {
+    public JSONObject buildVouchTx(String voucher, String candidate, MLDSAPrivateKeyParameters key) throws Exception {
         byte[] sig = PhantomCrypto.sign(key, PhantomCrypto.utf8("vouch|" + chainId + "|" + candidate));
         return new JSONObject().put("from", "VOUCH").put("voucher", voucher).put("candidate", candidate).put("cid", chainId).put("sig", PhantomCrypto.hex(sig));
     }
@@ -578,7 +578,7 @@ public class Ledger {
             "blockReward", "halvingBlocks", "maxSupply", "feeBurnBps", "slashBps", "jailBlocks", "unbondingBlocks", "estateInactivity", "minValidatorStake", "bridgeThreshold", "identityBond", "committeeSize"));
 
     boolean jailedActive(String id) { Long u = jailed.get(id); return u != null && height() < u; }
-    long projectedNonce(String id) throws Exception { return proj(id, mempoolProjection())[1]; }
+    public long projectedNonce(String id) throws Exception { return proj(id, mempoolProjection())[1]; }
 
     /** Resolve the public key for an account: a known validator's key, or a self-sovereign account's
      *  pubkey carried in the tx (bound by id == sha3-256(pubkey)). Enables any wallet to transact. */
@@ -593,7 +593,7 @@ public class Ledger {
     }
 
     // ===== identity != key (registry): id = sha3(root); root authorizes rotations, device keys spend =====
-    static String idOf(String rootPubHex) { return PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.unhex(rootPubHex))); }
+    public static String idOf(String rootPubHex) { return PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.unhex(rootPubHex))); }
     static MLDSAPublicKeyParameters pk(String hex) { return new MLDSAPublicKeyParameters(MLDSAParameters.ml_dsa_65, PhantomCrypto.unhex(hex)); }
 
     /** Authorize a signer: a registered identity must sign with one of its CURRENT device keys; an
@@ -607,13 +607,13 @@ public class Ledger {
         return null;   // pub is not (or no longer) an authorized device of this identity
     }
 
-    JSONObject buildRegisterTx(MLDSAPrivateKeyParameters rootKey, MLDSAPrivateKeyParameters deviceKey) throws Exception {
+    public JSONObject buildRegisterTx(MLDSAPrivateKeyParameters rootKey, MLDSAPrivateKeyParameters deviceKey) throws Exception {
         String root = PhantomCrypto.hex(rootKey.getPublicKeyParameters().getEncoded());
         String device = PhantomCrypto.hex(deviceKey.getPublicKeyParameters().getEncoded());
         byte[] sig = PhantomCrypto.sign(rootKey, PhantomCrypto.utf8("register|" + chainId + "|" + root + "|" + device));
         return new JSONObject().put("from", "REGISTER").put("root", root).put("device", device).put("cid", chainId).put("sig", PhantomCrypto.hex(sig));
     }
-    JSONObject buildRotateTx(String id, MLDSAPrivateKeyParameters rootKey, String newDevice, long rotNonce) throws Exception {
+    public JSONObject buildRotateTx(String id, MLDSAPrivateKeyParameters rootKey, String newDevice, long rotNonce) throws Exception {
         byte[] sig = PhantomCrypto.sign(rootKey, PhantomCrypto.utf8("rotate|" + chainId + "|" + id + "|" + newDevice + "|" + rotNonce));
         return new JSONObject().put("from", "ROTATE").put("id", id).put("newDevice", newDevice).put("rotNonce", rotNonce).put("cid", chainId).put("sig", PhantomCrypto.hex(sig));
     }
@@ -626,7 +626,7 @@ public class Ledger {
         byte[] sig = PhantomCrypto.sign(guardianDeviceKey, PhantomCrypto.utf8("recover|" + chainId + "|" + id + "|" + newDevice + "|" + rotNonce));
         return new JSONObject().put("guardian", guardianId).put("pub", pub).put("sig", PhantomCrypto.hex(sig));
     }
-    JSONObject buildRecoverTx(String id, String newDevice, long rotNonce, JSONArray approvals) throws Exception {
+    public JSONObject buildRecoverTx(String id, String newDevice, long rotNonce, JSONArray approvals) throws Exception {
         return new JSONObject().put("from", "RECOVER").put("id", id).put("newDevice", newDevice).put("rotNonce", rotNonce).put("cid", chainId).put("approvals", approvals);
     }
 
@@ -648,7 +648,7 @@ public class Ledger {
         // the commitment is signed over too, so a joiner can't be assigned someone else's commit0
         return PhantomCrypto.verify(pk(pub), PhantomCrypto.utf8("valjoin|" + chainId + "|" + pub + "|" + tx.getString("beaconCommit0")), PhantomCrypto.unhex(tx.getString("sig")));
     }
-    JSONObject buildValJoinTx(MLDSAPrivateKeyParameters key) throws Exception {
+    public JSONObject buildValJoinTx(MLDSAPrivateKeyParameters key) throws Exception {
         String pub = PhantomCrypto.hex(key.getPublicKeyParameters().getEncoded());
         String commit0 = beaconCommit0For(key.getEncoded());
         byte[] sig = PhantomCrypto.sign(key, PhantomCrypto.utf8("valjoin|" + chainId + "|" + pub + "|" + commit0));
@@ -656,12 +656,12 @@ public class Ledger {
     }
 
     // ===== cluster mining (spec §9): M-of-N member devices act as one validator =====
-    boolean isCluster(String id) { return clusters.containsKey(id); }
+    public boolean isCluster(String id) { return clusters.containsKey(id); }
 
     static String clusterFormCanon(String cid, String clusterId, JSONArray members, int threshold) { return ClusterLogic.clusterFormCanon(cid, clusterId, members, threshold); }
     boolean verifyClusterForm(JSONObject tx) throws Exception { return ClusterLogic.verifyClusterForm(this, tx); }
 
-    JSONObject buildClusterFormTx(String clusterId, java.util.List<String> members, Map<String, String> memberPubs,
+    public JSONObject buildClusterFormTx(String clusterId, java.util.List<String> members, Map<String, String> memberPubs,
                                   int threshold, MLDSAPrivateKeyParameters initKey, String beaconCommit0) throws Exception {
         JSONArray ms = new JSONArray(); for (String m : members) ms.put(m);
         JSONObject mp = new JSONObject(); for (Map.Entry<String, String> e : memberPubs.entrySet()) mp.put(e.getKey(), e.getValue());
@@ -673,7 +673,7 @@ public class Ledger {
     }
 
     /** Apply a CLUSTERFORM to state (idempotent; the cluster joins the validator set as one validator). */
-    boolean applyClusterForm(JSONObject tx) throws Exception { return ClusterLogic.applyClusterForm(this, tx); }
+    public boolean applyClusterForm(JSONObject tx) throws Exception { return ClusterLogic.applyClusterForm(this, tx); }
 
     static String clusterDisbandCanon(String cid, String clusterId) { return ClusterLogic.clusterDisbandCanon(cid, clusterId); }
     boolean verifyClusterDisband(JSONObject tx) throws Exception { return ClusterLogic.verifyClusterDisband(this, tx); }
@@ -688,14 +688,14 @@ public class Ledger {
     }
 
     /** A cluster's consensus signature on a block is a bundle of >= threshold distinct member sigs (M-of-N). */
-    boolean verifyClusterVote(String clusterId, String hash, JSONArray bundle) throws Exception { return ClusterLogic.verifyClusterVote(this, clusterId, hash, bundle); }
+    public boolean verifyClusterVote(String clusterId, String hash, JSONArray bundle) throws Exception { return ClusterLogic.verifyClusterVote(this, clusterId, hash, bundle); }
 
     /** Credit an epoch-reward share to a validator. For a cluster the share is split DIRECTLY and equally
      *  among its member identities (spec §9.6 — no operator intermediary); remainder to the first members. */
     void creditEarner(String valId, long share) throws Exception { EconomicsLogic.creditEarner(this, valId, share); }
 
     // ===== cross-chain bridge (on-chain side) =====
-    static String extAddr(String chain, String pubHex) {
+    public static String extAddr(String chain, String pubHex) {
         byte[] dom = PhantomCrypto.utf8("ext_addr_" + chain + "|"), pk = PhantomCrypto.unhex(pubHex);
         byte[] in = new byte[dom.length + pk.length];
         System.arraycopy(dom, 0, in, 0, dom.length); System.arraycopy(pk, 0, in, dom.length, pk.length);
@@ -704,30 +704,30 @@ public class Ledger {
     static String bridgeOutCanon(JSONObject tx) throws Exception { return BridgeLogic.bridgeOutCanon(tx); }
     /** Inbound: >=M custodians attest an external deposit -> release PHNT from the reserve to the recipient. */
     boolean verifyBridgeIn(JSONObject tx) throws Exception { return BridgeLogic.verifyBridgeIn(this, tx); }
-    JSONObject buildBridgeOutTx(String actor, String chain, String ext, long amount, long fee, long nonce, MLDSAPrivateKeyParameters key) throws Exception {
+    public JSONObject buildBridgeOutTx(String actor, String chain, String ext, long amount, long fee, long nonce, MLDSAPrivateKeyParameters key) throws Exception {
         JSONObject tx = new JSONObject().put("from", "BRIDGE_OUT").put("actor", actor).put("chain", chain).put("extAddr", ext)
                 .put("amount", amount).put("fee", fee).put("nonce", nonce).put("cid", chainId)
                 .put("pub", PhantomCrypto.hex(key.getPublicKeyParameters().getEncoded()));
         return tx.put("sig", PhantomCrypto.hex(PhantomCrypto.sign(key, PhantomCrypto.utf8(bridgeOutCanon(tx)))));
     }
-    JSONObject bridgeInApproval(String custodianId, MLDSAPrivateKeyParameters custKey, String recipient, long amount, String extTxid) throws Exception {
+    public JSONObject bridgeInApproval(String custodianId, MLDSAPrivateKeyParameters custKey, String recipient, long amount, String extTxid) throws Exception {
         String pub = PhantomCrypto.hex(custKey.getPublicKeyParameters().getEncoded());
         byte[] sig = PhantomCrypto.sign(custKey, PhantomCrypto.utf8("bridgein|" + chainId + "|" + recipient + "|" + amount + "|" + extTxid));
         return new JSONObject().put("custodian", custodianId).put("pub", pub).put("sig", PhantomCrypto.hex(sig));
     }
-    JSONObject buildBridgeInTx(String recipient, long amount, String extTxid, JSONArray approvals) throws Exception {
+    public JSONObject buildBridgeInTx(String recipient, long amount, String extTxid, JSONArray approvals) throws Exception {
         return new JSONObject().put("from", "BRIDGE_IN").put("recipient", recipient).put("amount", amount)
                 .put("extTxid", extTxid).put("cid", chainId).put("approvals", approvals);
     }
     boolean verifyOracle(JSONObject tx) throws Exception { return BridgeLogic.verifyOracle(this, tx); }
-    JSONObject buildOracleTx(String custodianId, MLDSAPrivateKeyParameters custKey, String pair, long rate) throws Exception {
+    public JSONObject buildOracleTx(String custodianId, MLDSAPrivateKeyParameters custKey, String pair, long rate) throws Exception {
         String pub = PhantomCrypto.hex(custKey.getPublicKeyParameters().getEncoded());
         byte[] sig = PhantomCrypto.sign(custKey, PhantomCrypto.utf8("oracle|" + chainId + "|" + pair + "|" + rate));
         return new JSONObject().put("from", "ORACLE").put("custodian", custodianId).put("pub", pub).put("pair", pair).put("rate", rate).put("cid", chainId).put("sig", PhantomCrypto.hex(sig));
     }
     /** Current price = median of custodian-attested rates for a pair (manipulation-resistant). */
-    long oracleMedian(String pair) { return BridgeLogic.oracleMedian(this, pair); }
-    long circulatingSupply() { return EconomicsLogic.circulatingSupply(this); }
+    public long oracleMedian(String pair) { return BridgeLogic.oracleMedian(this, pair); }
+    public long circulatingSupply() { return EconomicsLogic.circulatingSupply(this); }
 
     /** Deterministic hash of all consensus-relevant state (canonical: sorted maps). Committed in each
      *  block header as the post-state of the PREVIOUS block (Tendermint-style app hash), so any
@@ -736,7 +736,7 @@ public class Ledger {
     // Implementation lives in StateRootCodec (the single auditable byte-layout surface). These thin
     // delegators preserve the Ledger API so every call site (NetNode, tests) is unchanged. Byte layout
     // is frozen by node/GoldenStateRootTest.
-    String stateRoot() throws Exception { return StateRootCodec.stateRoot(this); }
+    public String stateRoot() throws Exception { return StateRootCodec.stateRoot(this); }
     static byte[] accountLeaf(String id, long balance, long nonce) { return StateRootCodec.accountLeaf(id, balance, nonce); }
     static byte[] boundMerkleRoot(int count, byte[] inner) { return StateRootCodec.boundMerkleRoot(count, inner); }
     static byte[] merkleNode(byte[] l, byte[] r) { return StateRootCodec.merkleNode(l, r); }
@@ -745,16 +745,16 @@ public class Ledger {
     static boolean merkleVerify(byte[] leaf, int idx, java.util.List<byte[]> sibs, byte[] root) { return StateRootCodec.merkleVerify(leaf, idx, sibs, root); }
     java.util.List<String> sortedAccountIds() { return StateRootCodec.sortedAccountIds(this); }
     java.util.List<byte[]> accountLeaves() { return StateRootCodec.accountLeaves(this); }
-    String accountsMerkleRoot() { return StateRootCodec.accountsMerkleRoot(this); }
-    JSONObject accountProof(String id) { return StateRootCodec.accountProof(this, id); }
-    static boolean verifyAccountProof(JSONObject p) { return StateRootCodec.verifyAccountProof(p); }
+    public String accountsMerkleRoot() { return StateRootCodec.accountsMerkleRoot(this); }
+    public JSONObject accountProof(String id) { return StateRootCodec.accountProof(this, id); }
+    public static boolean verifyAccountProof(JSONObject p) { return StateRootCodec.verifyAccountProof(p); }
 
     // ===== state sharding: per-id state partitioned into SHARDS, each independently rooted =====
-    static final int SHARDS = 16;
+    public static final int SHARDS = 16;
     static int shardOf(String id) { return StateRootCodec.shardOf(id); }
-    String shardData(int s) throws Exception { return StateRootCodec.shardData(this, s); }
-    String shardRoot(int s) throws Exception { return StateRootCodec.shardRoot(this, s); }
-    String shardsRoot() throws Exception { return StateRootCodec.shardsRoot(this); }
+    public String shardData(int s) throws Exception { return StateRootCodec.shardData(this, s); }
+    public String shardRoot(int s) throws Exception { return StateRootCodec.shardRoot(this, s); }
+    public String shardsRoot() throws Exception { return StateRootCodec.shardsRoot(this); }
     /** Light-client proof: a shard slice + the sibling roots verify against a committed shardsRoot,
      *  WITHOUT holding the rest of the state. */
     static boolean verifyShardProof(String committedShardsRoot, int s, String shardDataStr, JSONArray roots) throws Exception {
@@ -766,7 +766,7 @@ public class Ledger {
     }
 
     static long clamp(long v, long lo, long hi) { return Math.max(lo, Math.min(hi, v)); }
-    void applyParam(String param, long v) { GovernanceLogic.applyParam(this, param, v); }   // impl in GovernanceLogic
+    public void applyParam(String param, long v) { GovernanceLogic.applyParam(this, param, v); }   // impl in GovernanceLogic
 
     /** Apply a validated tx's balance/nonce deltas to a projection map (no validation here). */
     void applyProj(JSONObject tx, Map<String, long[]> m) throws Exception {
@@ -854,22 +854,22 @@ public class Ledger {
         return null;
     }
 
-    JSONObject buildBondTx(String actor, long amount, long nonce, boolean unbond, MLDSAPrivateKeyParameters key) throws Exception {
+    public JSONObject buildBondTx(String actor, long amount, long nonce, boolean unbond, MLDSAPrivateKeyParameters key) throws Exception {
         JSONObject tx = new JSONObject().put("from", unbond ? "UNBOND" : "BOND").put("actor", actor).put("amount", amount).put("nonce", nonce).put("cid", chainId)
                 .put("pub", PhantomCrypto.hex(key.getPublicKeyParameters().getEncoded()));
         return tx.put("sig", PhantomCrypto.hex(PhantomCrypto.sign(key, PhantomCrypto.utf8(actionCanon(tx)))));
     }
-    JSONObject buildUnjailTx(String actor, long nonce, MLDSAPrivateKeyParameters key) throws Exception {
+    public JSONObject buildUnjailTx(String actor, long nonce, MLDSAPrivateKeyParameters key) throws Exception {
         JSONObject tx = new JSONObject().put("from", "UNJAIL").put("actor", actor).put("nonce", nonce).put("cid", chainId)
                 .put("pub", PhantomCrypto.hex(key.getPublicKeyParameters().getEncoded()));
         return tx.put("sig", PhantomCrypto.hex(PhantomCrypto.sign(key, PhantomCrypto.utf8(actionCanon(tx)))));
     }
-    JSONObject buildProposeTx(String actor, String propId, String param, long value, long nonce, MLDSAPrivateKeyParameters key) throws Exception {
+    public JSONObject buildProposeTx(String actor, String propId, String param, long value, long nonce, MLDSAPrivateKeyParameters key) throws Exception {
         JSONObject tx = new JSONObject().put("from", "PROPOSE").put("actor", actor).put("propId", propId).put("param", param).put("value", value).put("nonce", nonce).put("cid", chainId)
                 .put("pub", PhantomCrypto.hex(key.getPublicKeyParameters().getEncoded()));
         return tx.put("sig", PhantomCrypto.hex(PhantomCrypto.sign(key, PhantomCrypto.utf8(actionCanon(tx)))));
     }
-    JSONObject buildVoteTx(String actor, String propId, boolean choice, long nonce, MLDSAPrivateKeyParameters key) throws Exception {
+    public JSONObject buildVoteTx(String actor, String propId, boolean choice, long nonce, MLDSAPrivateKeyParameters key) throws Exception {
         JSONObject tx = new JSONObject().put("from", "VOTE").put("actor", actor).put("propId", propId).put("choice", choice).put("nonce", nonce).put("cid", chainId)
                 .put("pub", PhantomCrypto.hex(key.getPublicKeyParameters().getEncoded()));
         return tx.put("sig", PhantomCrypto.hex(PhantomCrypto.sign(key, PhantomCrypto.utf8(actionCanon(tx)))));
@@ -882,13 +882,13 @@ public class Ledger {
     // SIM-TRUSTED (real needs more): identity count -> Sybil-resistant personhood; the proposer
     // randomness here is seeded by prevHash (GRINDABLE) where real consensus needs a VRF.
 
-    void genesisEcon(String chainId, java.util.LinkedHashMap<String, Long> alloc, java.util.List<String> vals,
+    public void genesisEcon(String chainId, java.util.LinkedHashMap<String, Long> alloc, java.util.List<String> vals,
                      Map<String, Long> stk, Map<String, Long> idn, java.util.Set<String> seedVerified,
                      Map<String, String> valPubsSeed, long ts) throws Exception {
         genesisEcon(chainId, alloc, vals, stk, idn, seedVerified, valPubsSeed, null, ts);
     }
 
-    void genesisEcon(String chainId, java.util.LinkedHashMap<String, Long> alloc, java.util.List<String> vals,
+    public void genesisEcon(String chainId, java.util.LinkedHashMap<String, Long> alloc, java.util.List<String> vals,
                      Map<String, Long> stk, Map<String, Long> idn, java.util.Set<String> seedVerified,
                      Map<String, String> valPubsSeed, Map<String, String> beaconCommitsSeed, long ts) throws Exception {
         this.chainId = chainId;   // set before genesisMulti so the genesis block hash commits to it
@@ -913,26 +913,27 @@ public class Ledger {
         jailed.clear(); unbonding.clear(); proposals.clear();
     }
 
-    boolean excluded(String id) { return slashed.contains(id) || jailedActive(id) || collapsed.contains(id); }   // tombstone, active jail, OR disbanded cluster
+    public boolean excluded(String id) { return slashed.contains(id) || jailedActive(id) || collapsed.contains(id); }   // tombstone, active jail, OR disbanded cluster
     // §9 validator weighting (stake/identity + geo premium + 10% cap) — impl in ValidatorSelection.
-    java.util.List<Integer> liveIdx() { return ValidatorSelection.liveIdx(this); }
-    double coverageMultiplier(int idx) { return ValidatorSelection.coverageMultiplier(this, idx); }
-    double weight(int idx) { return ValidatorSelection.weight(this, idx); }
-    java.util.Map<Integer, Double> weightMap() { return ValidatorSelection.weightMap(this); }
+    public java.util.List<Integer> liveIdx() { return ValidatorSelection.liveIdx(this); }
+    public double coverageMultiplier(int idx) { return ValidatorSelection.coverageMultiplier(this, idx); }
+    public static final double WEIGHT_CAP = ValidatorSelection.WEIGHT_CAP;   // facade: §9.4 per-validator cap
+    public double weight(int idx) { return ValidatorSelection.weight(this, idx); }
+    public java.util.Map<Integer, Double> weightMap() { return ValidatorSelection.weightMap(this); }
 
 
     /** Verify the proposer's reveal matches the commitment it made in its prior block (RANDAO binding). */
     // commit-reveal RANDAO beacon — impl in BeaconLogic; thin delegators keep the Ledger API.
-    boolean beaconRevealValid(JSONObject b) { return BeaconLogic.beaconRevealValid(this, b); }
+    public boolean beaconRevealValid(JSONObject b) { return BeaconLogic.beaconRevealValid(this, b); }
     void beaconApply(JSONObject b) throws Exception { BeaconLogic.beaconApply(this, b); }
-    static byte[] beaconSeedFor(byte[] keyEncoded) { return BeaconLogic.beaconSeedFor(keyEncoded); }
-    static byte[] beaconSecretFor(byte[] keyEncoded, long c) { return BeaconLogic.beaconSecretFor(keyEncoded, c); }
-    static String beaconCommit0For(byte[] keyEncoded) { return BeaconLogic.beaconCommit0For(keyEncoded); }
+    public static byte[] beaconSeedFor(byte[] keyEncoded) { return BeaconLogic.beaconSeedFor(keyEncoded); }
+    public static byte[] beaconSecretFor(byte[] keyEncoded, long c) { return BeaconLogic.beaconSecretFor(keyEncoded, c); }
+    public static String beaconCommit0For(byte[] keyEncoded) { return BeaconLogic.beaconCommit0For(keyEncoded); }
 
     // weighted RANDAO proposer election + beacon-sortitioned committee — impl in ValidatorSelection.
-    int proposerFor(String prevHash, int height, int view) throws Exception { return ValidatorSelection.proposerFor(this, prevHash, height, view); }
-    java.util.List<Integer> committeeFor(int height) { return ValidatorSelection.committeeFor(this, height); }
-    int committeeQuorum(int height) { return ValidatorSelection.committeeQuorum(this, height); }
+    public int proposerFor(String prevHash, int height, int view) throws Exception { return ValidatorSelection.proposerFor(this, prevHash, height, view); }
+    public java.util.List<Integer> committeeFor(int height) { return ValidatorSelection.committeeFor(this, height); }
+    public int committeeQuorum(int height) { return ValidatorSelection.committeeQuorum(this, height); }
 
     /** Decaying emission: blockReward halved once per halvingBlocks. Deterministic, capped by maxSupply. */
     // monetary policy (emission / epoch rewards / supply) — impl in EconomicsLogic.

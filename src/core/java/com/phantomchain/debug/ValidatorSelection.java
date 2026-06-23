@@ -26,20 +26,6 @@ final class ValidatorSelection {
         return r;
     }
 
-    /** Base weight = 0.6·√stake-share + 0.4·identity-share, over non-excluded validators. */
-    static double baseWeight(Ledger l, int idx) {
-        if (idx < 0 || idx >= l.validators.size() || l.excluded(l.validators.get(idx))) return 0;
-        double sqSum = 0; long idSum = 0;
-        for (int j : liveIdx(l)) {
-            sqSum += Math.sqrt(l.stake.getOrDefault(l.validators.get(j), 0L));
-            if (l.verified.contains(l.validators.get(j))) idSum += l.identity.getOrDefault(l.validators.get(j), 0L);   // identity weight only for personhood-verified humans
-        }
-        double stakeShare = sqSum > 0 ? Math.sqrt(l.stake.getOrDefault(l.validators.get(idx), 0L)) / sqSum : 0;
-        long myId = l.verified.contains(l.validators.get(idx)) ? l.identity.getOrDefault(l.validators.get(idx), 0L) : 0;
-        double idShare = idSum > 0 ? (double) myId / idSum : 0;
-        return 0.6 * stakeShare + 0.4 * idShare;
-    }
-
     /** Geo coverage premium (opt-in): sparse regions earn a higher multiplier so coverage is incentivized. */
     static double coverageMultiplier(Ledger l, int idx) {
         String region = l.regions.get(l.validators.get(idx));

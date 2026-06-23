@@ -1,4 +1,6 @@
-package com.phantomchain.debug;
+package com.phantomchain.net;
+
+import com.phantomchain.debug.*;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;

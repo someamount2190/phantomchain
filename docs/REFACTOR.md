@@ -78,8 +78,19 @@ Leaves done:
   inactivity check); estate state stays in `Ledger`; call sites updated directly (no
   delegators — both were Ledger-internal). Guarded by `EstateAttackTest`.
 
-Next, same pattern: Governance (proposal lifecycle), Recovery (guardian M-of-N),
-Beacon (commit-reveal). `Ledger`: 1640 → 1275 lines so far.
+- **RecoveryLogic** — identity key-management & guardian recovery (`verifyRegister` /
+  `verifyRotate` / `verifySetGuardians` / `verifyRecover`). Guarded by `RecoveryAttackTest`.
+- **BeaconLogic** — commit-reveal RANDAO (`beaconRevealValid` / `beaconApply` + the
+  key-derived secret/commit derivation). Guarded by `AdversaryTest`.
+- **GovernanceLogic** — two-phase proposal lifecycle (`finalizeProposals` snapshot-weighted
+  tally + turnout quorum + timelocked, bounds-clamped `applyParam`). Guarded by
+  `GovernanceAttackTest`.
+
+State stays in `Ledger`; it's now a thin coordinator over typed subsystems. `Ledger`:
+**1640 → 1183 lines (−457)**, into 7 single-responsibility files (`SrVersion`,
+`StateRootCodec`, `Bridge/Estate/Recovery/Beacon/GovernanceLogic`). The `commitBlock`
+tx-dispatch and per-case state recording remain the single state-transition entry point
+by design.
 
 ## Step 2 — extract leaf subsystems behind interfaces, one at a time
 

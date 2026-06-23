@@ -480,7 +480,7 @@ public class Ledger {
             }
         }
         // 6) finalize due governance proposals
-        finalizeProposals();
+        GovernanceLogic.finalizeProposals(this);
         // 7) drop included txs from mempool
         final java.util.Set<String> included = new java.util.HashSet<>();
         for (int i = 0; i < txs.length(); i++) included.add(txId(txs.getJSONObject(i)));
@@ -854,22 +854,7 @@ public class Ledger {
     }
 
     static long clamp(long v, long lo, long hi) { return Math.max(lo, Math.min(hi, v)); }
-    void applyParam(String param, long v) {   // governance cannot set values outside safe bounds
-        switch (param) {
-            case "blockReward":     blockReward = clamp(v, 0, 1_000_000L);                 break;
-            case "halvingBlocks":   halvingBlocks = (int) clamp(v, 1, 100_000_000L);       break;
-            case "maxSupply":       maxSupply = clamp(v, totalMinted, 1_000_000_000_000L); break;   // never below already-minted
-            case "feeBurnBps":      feeBurnBps = (int) clamp(v, 0, 10000);                 break;
-            case "slashBps":        slashBps = (int) clamp(v, 100, 10000);                 break;   // floor: slashing can't be disabled
-            case "jailBlocks":      jailBlocks = (int) clamp(v, 1, 100_000_000L);          break;
-            case "unbondingBlocks": unbondingBlocks = (int) clamp(v, 1, 100_000_000L);     break;
-            case "estateInactivity": estateInactivity = clamp(v, 1, 100_000_000L);        break;
-            case "minValidatorStake": minValidatorStake = (int) clamp(v, 1, 1_000_000_000L); break;
-            case "bridgeThreshold": bridgeThreshold = (int) clamp(v, 1, 1000); break;
-            case "identityBond":    identityBond = clamp(v, 0, 1_000_000_000L); break;
-            case "committeeSize":   committeeSize = (int) clamp(v, 0, 100_000L); break;
-        }
-    }
+    void applyParam(String param, long v) { GovernanceLogic.applyParam(this, param, v); }   // impl in GovernanceLogic
 
     /** Apply a validated tx's balance/nonce deltas to a projection map (no validation here). */
     void applyProj(JSONObject tx, Map<String, long[]> m) throws Exception {
@@ -978,29 +963,6 @@ public class Ledger {
         return tx.put("sig", PhantomCrypto.hex(PhantomCrypto.sign(key, PhantomCrypto.utf8(actionCanon(tx)))));
     }
 
-    /** Two-phase governance: at deadline, tally snapshot-weighted votes with a turnout quorum; if it
-     *  passes, apply only after a timelock (gives the network time to react to a malicious proposal). */
-    void finalizeProposals() throws Exception {
-        int H = height();
-        for (JSONObject p : proposals.values()) {
-            if (p.getBoolean("executed")) continue;
-            if (!p.getBoolean("tallied") && H >= p.getLong("deadline")) {
-                JSONObject votes = p.getJSONObject("votes"), snap = p.getJSONObject("snapshot");
-                long yes = 0, no = 0;
-                for (String voter : keysOf(votes)) {
-                    long w = snap.optLong(voter, 0);                       // snapshot weight (no last-minute stake grinding)
-                    if (votes.getBoolean(voter)) yes += w; else no += w;
-                }
-                long total = p.getLong("totalWeight");
-                boolean turnout = total > 0 && (yes + no) * 10000L >= total * (long) GOV_QUORUM_BPS;
-                p.put("tallied", true).put("passed", turnout && yes > no);
-            }
-            if (p.getBoolean("tallied") && p.getBoolean("passed") && H >= p.getLong("applyAt")) {
-                applyParam(p.getString("param"), p.getLong("value"));     // timelocked execution
-                p.put("executed", true);
-            }
-        }
-    }
 
     // ===== mining economics (simulation) =====
     // weight = 0.6*sqrt(stake)-share + 0.4*identity-share, over non-slashed validators.

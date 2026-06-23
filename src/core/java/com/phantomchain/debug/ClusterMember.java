@@ -92,9 +92,11 @@ public class ClusterMember {
                 byte[] sig = PhantomCrypto.sign(key, PhantomCrypto.utf8(hash));   // sign exactly what verifyClusterVote checks
                 return new JSONObject().put("m", id).put("sig", PhantomCrypto.hex(sig)).put("hash", hash).toString();
             }
-            return new JSONObject().put("error", "unknown endpoint").toString();
+            return "{\"error\":\"unknown endpoint\"}";
         } catch (Exception e) {
-            return new JSONObject().put("error", String.valueOf(e.getMessage())).toString();
+            // hand-built (not JSONObject.put, which throws a *checked* JSONException on Android — and we're
+            // already in the catch): escape the message so it can't break out of the JSON string.
+            return "{\"error\":\"" + String.valueOf(e.getMessage()).replace('\\', '/').replace('"', '\'') + "\"}";
         }
     }
 

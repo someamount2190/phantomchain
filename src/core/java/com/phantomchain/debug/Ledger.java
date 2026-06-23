@@ -548,7 +548,7 @@ public class Ledger implements LedgerView {
     }
 
     /** Phases 4-5 — distribute tx fees (burn feeBurnBps%, remainder to the block proposer) and mature due unbondings. */
-    private void settleBlock(JSONObject b, long blockFees) {
+    private void settleBlock(JSONObject b, long blockFees) throws Exception {
         int proposerIdx = b.optInt("proposer", -1);
         if (blockFees > 0) {
             long burnF = blockFees * feeBurnBps / 10000;
@@ -571,7 +571,7 @@ public class Ledger implements LedgerView {
     }
 
     /** Phase 7 — drop the block's included txs from the mempool. */
-    private void dropIncludedTxs(JSONArray txs) {
+    private void dropIncludedTxs(JSONArray txs) throws Exception {
         final java.util.Set<String> included = new java.util.HashSet<>();
         for (int i = 0; i < txs.length(); i++) included.add(txId(txs.getJSONObject(i)));
         mempool.removeIf(t -> included.contains(txId(t)));
@@ -775,8 +775,8 @@ public class Ledger implements LedgerView {
     java.util.List<String> sortedAccountIds() { return StateRootCodec.sortedAccountIds(this); }
     java.util.List<byte[]> accountLeaves() { return StateRootCodec.accountLeaves(this); }
     public String accountsMerkleRoot() { return StateRootCodec.accountsMerkleRoot(this); }
-    public JSONObject accountProof(String id) { return StateRootCodec.accountProof(this, id); }
-    public static boolean verifyAccountProof(JSONObject p) { return StateRootCodec.verifyAccountProof(p); }
+    public JSONObject accountProof(String id) throws Exception { return StateRootCodec.accountProof(this, id); }
+    public static boolean verifyAccountProof(JSONObject p) throws Exception { return StateRootCodec.verifyAccountProof(p); }
 
     // ===== state sharding: per-id state partitioned into SHARDS, each independently rooted =====
     public static final int SHARDS = 16;

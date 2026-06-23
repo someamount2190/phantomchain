@@ -172,7 +172,7 @@ final class StateRootCodec {
     }
 
     /** Serializable inclusion proof for `id` against accountsMerkleRoot() (what /stateproof serves). */
-    static JSONObject accountProof(Ledger l, String id) {
+    static JSONObject accountProof(Ledger l, String id) throws Exception {
         java.util.List<String> ids = sortedAccountIds(l);
         int idx = ids.indexOf(id);
         if (idx < 0) return new JSONObject().put("present", false).put("id", id).put("root", accountsMerkleRoot(l));
@@ -186,7 +186,7 @@ final class StateRootCodec {
                 .put("siblings", sibs).put("root", accountsMerkleRoot(l));   // count-bound root
     }
     /** Stateless verification of an account proof (a light client runs exactly this against a trusted root). */
-    static boolean verifyAccountProof(JSONObject p) {
+    static boolean verifyAccountProof(JSONObject p) throws Exception {
         if (p == null || !p.optBoolean("present", false)) return false;
         int idx = p.getInt("index"), count = p.getInt("count");
         if (idx < 0 || idx >= count) return false;                 // reject a duplicated/out-of-range position

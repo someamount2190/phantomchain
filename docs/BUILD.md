@@ -116,6 +116,23 @@ $proj = "C:\Users\Christian Correa\OneDrive\Desktop\Projects\PhantomChain\src\an
 ```
 sdk.dir=C:/Users/Christian Correa/scoop/apps/android-clt/current
 ```
+
+### Wallet truststore — MUST match the target testnet's CA (gitignored)
+The wallet pins TLS to one cluster CA via `app/src/main/assets/truststore.p12` (loaded by
+`Wallet.tlsTrusting`, password `phantomchain`). It is **gitignored** (it's a per-deployment cert, not
+source), so a checkout has no truststore and a *stale* one silently breaks every server call with
+`CertPathValidatorException: Trust anchor for certification path not found` — each genesis ceremony mints a
+**fresh** `CN=phantomchain-ca` (same CN, new key), so a truststore from an earlier cluster will not validate
+the current one. Symptom in-app: balance stays `—`. To (re)provision it for the live node (no SSH needed —
+the node presents its full chain), extract the CA from the TLS handshake and rebuild the truststore:
+```bash
+NODE=188.166.224.212:9090
+echo | openssl s_client -connect $NODE -showcerts 2>/dev/null \
+  | awk 'BEGIN{n=0}/BEGIN CERT/{n++}n>=2{print}/END CERT/{if(n>=2)exit}' > ca.pem   # 2nd cert = the CA
+keytool -importcert -noprompt -alias ca -file ca.pem -storetype PKCS12 -storepass phantomchain \
+  -keystore src/android/app/src/main/assets/truststore.p12     # overwrite, then ./gradlew assembleDebug
+```
+(Alternatively copy the cluster's `pcdata/certs/truststore.p12` from the node host if you have access.)
 Note: BouncyCastle dexes cleanly (Android's platform BC is repackaged to `com.android.org.bouncycastle`, so no duplicate-class conflict).
 
 ---

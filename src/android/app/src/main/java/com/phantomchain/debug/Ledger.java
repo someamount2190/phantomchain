@@ -243,152 +243,9 @@ public class Ledger {
         return ks;
     }
 
-    String toJson() throws Exception {
-        JSONObject root = new JSONObject();
-        root.put("owner", ownerId == null ? JSONObject.NULL : ownerId);
-        root.put("chainId", chainId);
-        root.put("srVersion", srVersion);   // state-root serialization version travels with the chain (no launch flag)
-        JSONObject accs = new JSONObject();
-        for (Map.Entry<String, Account> e : accounts.entrySet())
-            accs.put(e.getKey(), new JSONObject().put("balance", e.getValue().balance).put("nonce", e.getValue().nonce));
-        root.put("accounts", accs);
-        JSONArray ch = new JSONArray(); for (JSONObject b : chain) ch.put(b);
-        root.put("chain", ch);
-        JSONArray mp = new JSONArray(); for (JSONObject t : mempool) mp.put(t);
-        root.put("mempool", mp);
-        JSONArray sl = new JSONArray(); for (String v : slashed) sl.put(v);
-        root.put("slashed", sl);
-        JSONObject st = new JSONObject(); for (Map.Entry<String, Long> e : stake.entrySet()) st.put(e.getKey(), (long) e.getValue());
-        root.put("stake", st);
-        JSONObject idn = new JSONObject(); for (Map.Entry<String, Long> e : identity.entrySet()) idn.put(e.getKey(), (long) e.getValue());
-        root.put("identity", idn);
-        JSONArray vs = new JSONArray(); for (String v : validators) vs.put(v);
-        root.put("validators", vs);
-        root.put("minted", totalMinted);
-        JSONArray ver = new JSONArray(); for (String v : verified) ver.put(v);
-        root.put("verified", ver);
-        JSONObject vo = new JSONObject();
-        for (Map.Entry<String, java.util.Set<String>> e : vouches.entrySet()) { JSONArray a = new JSONArray(); for (String x : e.getValue()) a.put(x); vo.put(e.getKey(), a); }
-        root.put("vouches", vo);
-        root.put("burned", burned);
-        root.put("params", new JSONObject()
-            .put("blockReward", blockReward).put("halvingBlocks", halvingBlocks).put("maxSupply", maxSupply)
-            .put("feeBurnBps", feeBurnBps).put("slashBps", slashBps).put("jailBlocks", jailBlocks).put("unbondingBlocks", unbondingBlocks)
-            .put("estateInactivity", estateInactivity).put("minValidatorStake", minValidatorStake).put("bridgeThreshold", bridgeThreshold).put("identityBond", identityBond).put("committeeSize", committeeSize));
-        JSONObject jl = new JSONObject(); for (Map.Entry<String, Long> e : jailed.entrySet()) jl.put(e.getKey(), (long) e.getValue());
-        root.put("jailed", jl);
-        JSONArray ub = new JSONArray(); for (JSONObject u : unbonding) ub.put(u);
-        root.put("unbonding", ub);
-        JSONObject pr = new JSONObject(); for (Map.Entry<String, JSONObject> e : proposals.entrySet()) pr.put(e.getKey(), e.getValue());
-        root.put("proposals", pr);
-        JSONObject idns = new JSONObject(); for (Map.Entry<String, JSONObject> e : identities.entrySet()) idns.put(e.getKey(), e.getValue());
-        root.put("identities", idns);
-        JSONObject la = new JSONObject(); for (Map.Entry<String, Long> e : lastActive.entrySet()) la.put(e.getKey(), (long) e.getValue());
-        root.put("lastActive", la);
-        JSONObject bf = new JSONObject(); for (Map.Entry<String, String> e : beneficiary.entrySet()) bf.put(e.getKey(), e.getValue());
-        root.put("beneficiary", bf);
-        JSONObject vp = new JSONObject(); for (Map.Entry<String, String> e : valPubs.entrySet()) vp.put(e.getKey(), e.getValue());
-        root.put("valPubs", vp);
-        JSONObject rg = new JSONObject(); for (Map.Entry<String, String> e : regions.entrySet()) rg.put(e.getKey(), e.getValue());
-        root.put("regions", rg);
-        JSONObject tr = new JSONObject(); for (Map.Entry<String, String> e : tiers.entrySet()) tr.put(e.getKey(), e.getValue());
-        root.put("tiers", tr);
-        JSONObject cu = new JSONObject(); for (Map.Entry<String, String> e : custodians.entrySet()) cu.put(e.getKey(), e.getValue());
-        root.put("custodians", cu);
-        JSONObject cls = new JSONObject(); for (Map.Entry<String, JSONObject> e : clusters.entrySet()) cls.put(e.getKey(), e.getValue());
-        root.put("clusters", cls);
-        JSONArray clp = new JSONArray(); for (String x : collapsed) clp.put(x);
-        root.put("collapsed", clp);
-        JSONArray bp = new JSONArray(); for (String x : bridgeProcessed) bp.put(x);
-        root.put("bridgeProcessed", bp);
-        JSONObject orc = new JSONObject();
-        for (Map.Entry<String, Map<String, Long>> e : oracleRates.entrySet()) { JSONObject in = new JSONObject(); for (Map.Entry<String, Long> i : e.getValue().entrySet()) in.put(i.getKey(), (long) i.getValue()); orc.put(e.getKey(), in); }
-        root.put("oracleRates", orc);
-        root.put("beacon", beacon);
-        JSONObject cm = new JSONObject(); for (Map.Entry<String, String> e : commits.entrySet()) cm.put(e.getKey(), e.getValue());
-        root.put("commits", cm);
-        return root.toString();
-    }
+    String toJson() throws Exception { return StateRootCodec.toJson(this); }
 
-    void fromJson(String s) throws Exception {
-        JSONObject root = new JSONObject(s);
-        ownerId = root.isNull("owner") ? null : root.getString("owner");
-        chainId = root.optString("chainId", "");
-        srVersion = root.optString("srVersion", "full");   // legacy snapshots without the field == "full"
-        accounts.clear(); chain.clear(); mempool.clear();
-        JSONObject accs = root.getJSONObject("accounts");
-        for (Iterator<String> it = accs.keys(); it.hasNext(); ) {
-            String k = it.next();
-            JSONObject a = accs.getJSONObject(k);
-            Account ac = new Account(); ac.balance = a.getLong("balance"); ac.nonce = a.getLong("nonce");
-            accounts.put(k, ac);
-        }
-        JSONArray ch = root.getJSONArray("chain");
-        for (int i = 0; i < ch.length(); i++) chain.add(ch.getJSONObject(i));
-        JSONArray mp = root.optJSONArray("mempool");
-        if (mp != null) for (int i = 0; i < mp.length(); i++) mempool.add(mp.getJSONObject(i));
-        slashed.clear();
-        JSONArray sl = root.optJSONArray("slashed");
-        if (sl != null) for (int i = 0; i < sl.length(); i++) slashed.add(sl.getString(i));
-        stake.clear(); JSONObject st = root.optJSONObject("stake");
-        if (st != null) for (String k : keysOf(st)) stake.put(k, st.getLong(k));
-        identity.clear(); JSONObject idn = root.optJSONObject("identity");
-        if (idn != null) for (String k : keysOf(idn)) identity.put(k, idn.getLong(k));
-        validators.clear(); JSONArray vs = root.optJSONArray("validators");
-        if (vs != null) for (int i = 0; i < vs.length(); i++) validators.add(vs.getString(i));
-        totalMinted = root.optLong("minted", 0);
-        verified.clear(); JSONArray ver = root.optJSONArray("verified");
-        if (ver != null) for (int i = 0; i < ver.length(); i++) verified.add(ver.getString(i));
-        vouches.clear(); JSONObject vo = root.optJSONObject("vouches");
-        if (vo != null) for (String k : keysOf(vo)) { java.util.Set<String> set = new java.util.HashSet<>(); JSONArray a = vo.getJSONArray(k); for (int i = 0; i < a.length(); i++) set.add(a.getString(i)); vouches.put(k, set); }
-        burned = root.optLong("burned", 0);
-        JSONObject params = root.optJSONObject("params");
-        if (params != null) {
-            blockReward = params.optLong("blockReward", blockReward);
-            halvingBlocks = params.optInt("halvingBlocks", halvingBlocks);
-            maxSupply = params.optLong("maxSupply", maxSupply);
-            feeBurnBps = params.optInt("feeBurnBps", feeBurnBps);
-            slashBps = params.optInt("slashBps", slashBps);
-            jailBlocks = params.optInt("jailBlocks", jailBlocks);
-            unbondingBlocks = params.optInt("unbondingBlocks", unbondingBlocks);
-            estateInactivity = params.optLong("estateInactivity", estateInactivity);
-            minValidatorStake = params.optInt("minValidatorStake", minValidatorStake);
-            identityBond = params.optLong("identityBond", identityBond);
-            committeeSize = params.optInt("committeeSize", committeeSize);
-            bridgeThreshold = params.optInt("bridgeThreshold", bridgeThreshold);
-        }
-        jailed.clear(); JSONObject jl = root.optJSONObject("jailed");
-        if (jl != null) for (String k : keysOf(jl)) jailed.put(k, jl.getLong(k));
-        unbonding.clear(); JSONArray ub = root.optJSONArray("unbonding");
-        if (ub != null) for (int i = 0; i < ub.length(); i++) unbonding.add(ub.getJSONObject(i));
-        proposals.clear(); JSONObject pr = root.optJSONObject("proposals");
-        if (pr != null) for (String k : keysOf(pr)) proposals.put(k, pr.getJSONObject(k));
-        identities.clear(); JSONObject idns = root.optJSONObject("identities");
-        if (idns != null) for (String k : keysOf(idns)) identities.put(k, idns.getJSONObject(k));
-        lastActive.clear(); JSONObject la = root.optJSONObject("lastActive");
-        if (la != null) for (String k : keysOf(la)) lastActive.put(k, la.getLong(k));
-        beneficiary.clear(); JSONObject bf = root.optJSONObject("beneficiary");
-        if (bf != null) for (String k : keysOf(bf)) beneficiary.put(k, bf.getString(k));
-        valPubs.clear(); JSONObject vp = root.optJSONObject("valPubs");
-        if (vp != null) for (String k : keysOf(vp)) valPubs.put(k, vp.getString(k));
-        regions.clear(); JSONObject rg = root.optJSONObject("regions");
-        if (rg != null) for (String k : keysOf(rg)) regions.put(k, rg.getString(k));
-        tiers.clear(); JSONObject tr = root.optJSONObject("tiers");
-        if (tr != null) for (String k : keysOf(tr)) tiers.put(k, tr.getString(k));
-        clusters.clear(); JSONObject cls = root.optJSONObject("clusters");
-        if (cls != null) for (String k : keysOf(cls)) clusters.put(k, cls.getJSONObject(k));
-        collapsed.clear(); JSONArray clp = root.optJSONArray("collapsed");
-        if (clp != null) for (int i = 0; i < clp.length(); i++) collapsed.add(clp.getString(i));
-        custodians.clear(); JSONObject cu = root.optJSONObject("custodians");
-        if (cu != null) for (String k : keysOf(cu)) custodians.put(k, cu.getString(k));
-        bridgeProcessed.clear(); JSONArray bp = root.optJSONArray("bridgeProcessed");
-        if (bp != null) for (int i = 0; i < bp.length(); i++) bridgeProcessed.add(bp.getString(i));
-        oracleRates.clear(); JSONObject orc = root.optJSONObject("oracleRates");
-        if (orc != null) for (String pair : keysOf(orc)) { Map<String, Long> rs = new HashMap<>(); JSONObject in = orc.getJSONObject(pair); for (String c : keysOf(in)) rs.put(c, in.getLong(c)); oracleRates.put(pair, rs); }
-        beacon = root.optString("beacon", ZERO32);
-        commits.clear(); JSONObject cm = root.optJSONObject("commits");
-        if (cm != null) for (String k : keysOf(cm)) commits.put(k, cm.getString(k));
-    }
+    void fromJson(String s) throws Exception { StateRootCodec.fromJson(this, s); }
 
     // ===== multi-node (round-robin proposer) =====
     // State changes ONLY on block commit; mempool holds validated-pending txs (projected over committed state).
@@ -1060,36 +917,10 @@ public class Ledger {
 
     // ===== state sharding: per-id state partitioned into SHARDS, each independently rooted =====
     static final int SHARDS = 16;
-    static int shardOf(String id) {   // hex account ids shard by prefix; special ids (e.g. BRIDGE_RESERVE) by hash
-        try { return id.length() >= 4 ? Math.floorMod(Integer.parseInt(id.substring(0, 4), 16), SHARDS) : 0; }
-        catch (NumberFormatException e) { return Math.floorMod(PhantomCrypto.sha3_256(PhantomCrypto.utf8(id))[0] & 0xff, SHARDS); }
-    }
-
-    /** Canonical serialization of all per-id state assigned to shard s (sorted by id). */
-    String shardData(int s) throws Exception {
-        java.util.TreeSet<String> ids = new java.util.TreeSet<>();
-        ids.addAll(accounts.keySet()); ids.addAll(stake.keySet()); ids.addAll(identity.keySet());
-        ids.addAll(verified); ids.addAll(jailed.keySet()); ids.addAll(identities.keySet());
-        ids.addAll(lastActive.keySet()); ids.addAll(beneficiary.keySet());
-        StringBuilder sb = new StringBuilder();
-        for (String id : ids) {
-            if (shardOf(id) != s) continue;
-            Account a = accounts.get(id);
-            sb.append(id).append('|').append(a == null ? 0 : a.balance).append(',').append(a == null ? 0 : a.nonce)
-              .append(',').append(stake.getOrDefault(id, 0L)).append(',').append(identity.getOrDefault(id, 0L))
-              .append(',').append(verified.contains(id) ? 1 : 0).append(',').append(jailed.getOrDefault(id, 0L))
-              .append(',').append(lastActive.getOrDefault(id, 0L)).append(',').append(beneficiary.getOrDefault(id, ""))
-              .append(',').append(identities.containsKey(id) ? identities.get(id).toString() : "").append(';');
-        }
-        return sb.toString();
-    }
-    String shardRoot(int s) throws Exception { return PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8(shardData(s)))); }
-    /** Merkle commitment (flat) over all shard roots — bound into each block header as prevShardsRoot. */
-    String shardsRoot() throws Exception {
-        StringBuilder sb = new StringBuilder();
-        for (int s = 0; s < SHARDS; s++) sb.append(shardRoot(s));
-        return PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8(sb.toString())));
-    }
+    static int shardOf(String id) { return StateRootCodec.shardOf(id); }
+    String shardData(int s) throws Exception { return StateRootCodec.shardData(this, s); }
+    String shardRoot(int s) throws Exception { return StateRootCodec.shardRoot(this, s); }
+    String shardsRoot() throws Exception { return StateRootCodec.shardsRoot(this); }
     /** Light-client proof: a shard slice + the sibling roots verify against a committed shardsRoot,
      *  WITHOUT holding the rest of the state. */
     static boolean verifyShardProof(String committedShardsRoot, int s, String shardDataStr, JSONArray roots) throws Exception {

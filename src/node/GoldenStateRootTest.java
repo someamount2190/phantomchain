@@ -74,12 +74,22 @@ public class GoldenStateRootTest {
                 Ledger L = build(ver, mut);
                 String sr = L.stateRoot();
                 String amr = L.accountsMerkleRoot();
+                String shr = L.shardsRoot();
                 if (capture) {
                     System.out.println("        GOLDEN.put(\"sr:" + key + "\", \"" + sr + "\");");
                     System.out.println("        GOLDEN.put(\"amr:" + key + "\", \"" + amr + "\");");
+                    System.out.println("        GOLDEN.put(\"shr:" + key + "\", \"" + shr + "\");");
                 } else {
                     check("stateRoot " + key, sr, GOLDEN.get("sr:" + key));
                     check("accountsMerkleRoot " + key, amr, GOLDEN.get("amr:" + key));
+                    check("shardsRoot " + key, shr, GOLDEN.get("shr:" + key));
+                }
+                // toJson <-> fromJson round-trip invariant: a reloaded ledger reproduces the exact roots.
+                if (!capture) {
+                    Ledger L2 = new Ledger();
+                    L2.fromJson(L.toJson());
+                    check("roundtrip.stateRoot " + key, L2.stateRoot(), sr);
+                    check("roundtrip.shardsRoot " + key, L2.shardsRoot(), shr);
                 }
             }
         }
@@ -107,5 +117,13 @@ public class GoldenStateRootTest {
         GOLDEN.put("amr:m1/genesis", "3d0bc1b2648d933c001a7bd588f8ef0cc7ee0a2896f535f393e7986dba0a0f55");
         GOLDEN.put("sr:m1/mutated", "16c625b06e467e7a51f71666aeed170cd14648a9353b3ae3704e6db49bc92266");
         GOLDEN.put("amr:m1/mutated", "adbf57c1767729a0fdd5e2b64787ccb7737f1ff70852ee08746acfc70a378574");
+        GOLDEN.put("shr:v1/genesis", "bcdd3cfe778cb9a721eeae05a652e17d0ebd50ba155da80a32bf7a14cb1504f2");
+        GOLDEN.put("shr:v1/mutated", "04e231d0c7b043879bb1327f4857897e58909462fac5a01fca18ee2d268b18a5");
+        GOLDEN.put("shr:v2/genesis", "bcdd3cfe778cb9a721eeae05a652e17d0ebd50ba155da80a32bf7a14cb1504f2");
+        GOLDEN.put("shr:v2/mutated", "04e231d0c7b043879bb1327f4857897e58909462fac5a01fca18ee2d268b18a5");
+        GOLDEN.put("shr:full/genesis", "bcdd3cfe778cb9a721eeae05a652e17d0ebd50ba155da80a32bf7a14cb1504f2");
+        GOLDEN.put("shr:full/mutated", "04e231d0c7b043879bb1327f4857897e58909462fac5a01fca18ee2d268b18a5");
+        GOLDEN.put("shr:m1/genesis", "bcdd3cfe778cb9a721eeae05a652e17d0ebd50ba155da80a32bf7a14cb1504f2");
+        GOLDEN.put("shr:m1/mutated", "04e231d0c7b043879bb1327f4857897e58909462fac5a01fca18ee2d268b18a5");
     }
 }

@@ -98,7 +98,7 @@ final class NodeRpc {
                     synchronized (n.ledger) {
                         if (!n.ledger.isVerified(n.id)) return resp("reject: this node is not personhood-verified, cannot vouch");
                         tx = n.ledger.buildVouchTx(n.id, cand, n.key);
-                        res = n.ledger.addToMempool(tx, NetNode.PUB_BY_ID);
+                        res = n.ledger.addToMempool(tx, n.PUB_BY_ID);
                     }
                     if ("accepted".equals(res)) { n.seenTx.add(tx.getString("sig")); n.gossipTx(tx.toString()); }
                     return resp("vouch=" + res + " by node" + n.index + " for node" + ci);
@@ -107,19 +107,19 @@ final class NodeRpc {
                     boolean unbond = uri.equals("/unbond");
                     long amt = Long.parseLong(param(s, "amount") == null ? "0" : param(s, "amount"));
                     JSONObject tx; String res;
-                    synchronized (n.ledger) { tx = n.ledger.buildBondTx(n.id, amt, n.ledger.projectedNonce(n.id), unbond, n.key); res = n.ledger.addToMempool(tx, NetNode.PUB_BY_ID); }
+                    synchronized (n.ledger) { tx = n.ledger.buildBondTx(n.id, amt, n.ledger.projectedNonce(n.id), unbond, n.key); res = n.ledger.addToMempool(tx, n.PUB_BY_ID); }
                     if ("accepted".equals(res)) { n.seenTx.add(tx.getString("sig")); n.gossipTx(tx.toString()); }
                     return resp((unbond ? "unbond=" : "bond=") + res + " amount=" + amt);
                 }
                 case "/unjail": {
                     JSONObject tx; String res;
-                    synchronized (n.ledger) { tx = n.ledger.buildUnjailTx(n.id, n.ledger.projectedNonce(n.id), n.key); res = n.ledger.addToMempool(tx, NetNode.PUB_BY_ID); }
+                    synchronized (n.ledger) { tx = n.ledger.buildUnjailTx(n.id, n.ledger.projectedNonce(n.id), n.key); res = n.ledger.addToMempool(tx, n.PUB_BY_ID); }
                     if ("accepted".equals(res)) { n.seenTx.add(tx.getString("sig")); n.gossipTx(tx.toString()); }
                     return resp("unjail=" + res + " by node" + n.index);
                 }
                 case "/valjoin": {   // this node bonds-in and requests to join the validator set
                     JSONObject tx; String res;
-                    synchronized (n.ledger) { tx = n.ledger.buildValJoinTx(n.key); res = n.ledger.addToMempool(tx, NetNode.PUB_BY_ID); }
+                    synchronized (n.ledger) { tx = n.ledger.buildValJoinTx(n.key); res = n.ledger.addToMempool(tx, n.PUB_BY_ID); }
                     if ("accepted".equals(res)) { n.seenTx.add(Ledger.txId(tx)); n.gossipTx(tx.toString()); }
                     return resp("valjoin=" + res + " id=" + n.id.substring(0, 12));
                 }
@@ -128,7 +128,7 @@ final class NodeRpc {
                     long val = Long.parseLong(param(s, "value") == null ? "0" : param(s, "value"));
                     if (pp == null || pid == null) return resp("need pid=&param=&value=");
                     JSONObject tx; String res;
-                    synchronized (n.ledger) { tx = n.ledger.buildProposeTx(n.id, pid, pp, val, n.ledger.projectedNonce(n.id), n.key); res = n.ledger.addToMempool(tx, NetNode.PUB_BY_ID); }
+                    synchronized (n.ledger) { tx = n.ledger.buildProposeTx(n.id, pid, pp, val, n.ledger.projectedNonce(n.id), n.key); res = n.ledger.addToMempool(tx, n.PUB_BY_ID); }
                     if ("accepted".equals(res)) { n.seenTx.add(tx.getString("sig")); n.gossipTx(tx.toString()); }
                     return resp("propose=" + res + " " + pid + " " + pp + "=" + val);
                 }
@@ -136,7 +136,7 @@ final class NodeRpc {
                     String pid = param(s, "pid"); boolean yes = "true".equals(param(s, "yes"));
                     if (pid == null) return resp("need pid=&yes=true|false");
                     JSONObject tx; String res;
-                    synchronized (n.ledger) { tx = n.ledger.buildVoteTx(n.id, pid, yes, n.ledger.projectedNonce(n.id), n.key); res = n.ledger.addToMempool(tx, NetNode.PUB_BY_ID); }
+                    synchronized (n.ledger) { tx = n.ledger.buildVoteTx(n.id, pid, yes, n.ledger.projectedNonce(n.id), n.key); res = n.ledger.addToMempool(tx, n.PUB_BY_ID); }
                     if ("accepted".equals(res)) { n.seenTx.add(tx.getString("sig")); n.gossipTx(tx.toString()); }
                     return resp("govvote=" + res + " " + pid + " yes=" + yes);
                 }
@@ -184,7 +184,7 @@ final class NodeRpc {
                     long fee = Long.parseLong(param(s, "fee") == null ? "1" : param(s, "fee"));
                     String ext = Ledger.extAddr(chain == null ? "ETH" : chain, PhantomCrypto.hex(n.key.getPublicKeyParameters().getEncoded()));
                     JSONObject tx; String res;
-                    synchronized (n.ledger) { tx = n.ledger.buildBridgeOutTx(n.id, chain == null ? "ETH" : chain, ext, amount, fee, n.ledger.projectedNonce(n.id), n.key); res = n.ledger.addToMempool(tx, NetNode.PUB_BY_ID); }
+                    synchronized (n.ledger) { tx = n.ledger.buildBridgeOutTx(n.id, chain == null ? "ETH" : chain, ext, amount, fee, n.ledger.projectedNonce(n.id), n.key); res = n.ledger.addToMempool(tx, n.PUB_BY_ID); }
                     if ("accepted".equals(res)) { n.seenTx.add(Ledger.txId(tx)); n.gossipTx(tx.toString()); }
                     return resp("bridge_out=" + res + " amount=" + amount + " -> " + (chain == null ? "ETH" : chain) + ":" + ext);
                 }
@@ -245,12 +245,12 @@ final class NodeRpc {
                     return resp(header.toString());   // fallback
                 }
                 case "/peers": return resp(peersJson());
-                case "/genesis": return resp(NetNode.GEN.toJson().toString());
+                case "/genesis": return resp(n.GEN.toJson().toString());
                 case "/announce": {   // only the validator that owns this index (proven by signature) can set its address
                     int aidx = Integer.parseInt(param(s, "index")); String addr = param(s, "addr"); String sig = param(s, "sig");
                     if (aidx >= 0 && aidx < n.N && addr != null && sig != null && addr.indexOf('|') < 0) {   // no delimiter injection into the signed announce
-                        MLDSAPublicKeyParameters pub = NetNode.PUB_BY_ID.get(n.VAL_IDS[aidx]);
-                        if (pub != null && PhantomCrypto.verify(pub, PhantomCrypto.utf8("announce|" + NetNode.GEN.chainId + "|" + aidx + "|" + addr), PhantomCrypto.unhex(sig)))
+                        MLDSAPublicKeyParameters pub = n.PUB_BY_ID.get(n.VAL_IDS[aidx]);
+                        if (pub != null && PhantomCrypto.verify(pub, PhantomCrypto.utf8("announce|" + n.GEN.chainId + "|" + aidx + "|" + addr), PhantomCrypto.unhex(sig)))
                             n.peers.put(aidx, addr);
                     }
                     return resp(peersJson());
@@ -262,7 +262,7 @@ final class NodeRpc {
                     long amount = Long.parseLong(param(s, "amount") == null ? "10" : param(s, "amount"));
                     long fee = Long.parseLong(param(s, "fee") == null ? "1" : param(s, "fee"));
                     JSONObject tx; String res;
-                    synchronized (n.ledger) { tx = n.ledger.buildTxProjected(n.id, to, amount, fee, n.key); res = n.ledger.addToMempool(tx, NetNode.PUB_BY_ID); }
+                    synchronized (n.ledger) { tx = n.ledger.buildTxProjected(n.id, to, amount, fee, n.key); res = n.ledger.addToMempool(tx, n.PUB_BY_ID); }
                     if ("accepted".equals(res)) { n.seenTx.add(tx.getString("sig")); n.gossipTx(tx.toString()); }
                     return resp("submit=" + res + " amount=" + amount + " fee=" + fee);
                 }
@@ -270,7 +270,7 @@ final class NodeRpc {
                     String b = body(s); if (b == null) return resp("no body");
                     JSONObject tx = new JSONObject(b);
                     if (!n.seenTx.add(Ledger.txId(tx))) return resp("dup");
-                    String res; synchronized (n.ledger) { res = n.ledger.addToMempool(tx, NetNode.PUB_BY_ID); }
+                    String res; synchronized (n.ledger) { res = n.ledger.addToMempool(tx, n.PUB_BY_ID); }
                     if ("accepted".equals(res)) n.gossipTx(b);
                     return resp("tx=" + res);
                 }
@@ -285,7 +285,7 @@ final class NodeRpc {
                         if (blk.getInt("proposer") != proposer) { System.out.println("VOTE-REJECT wrong proposer h=" + h + " v=" + view + " got=" + blk.getInt("proposer") + " want=" + proposer); return resp("reject: wrong proposer for view"); }
                         if (n.isSlashed(proposer)) return resp("reject: proposer is slashed");
                         if (!n.ledger.proposalLinks(blk)) { System.out.println("VOTE-REJECT bad links h=" + h + " stateRootMatch=" + n.ledger.stateRoot().equals(blk.optString("prevStateRoot")) + " shardsMatch=" + n.ledger.shardsRoot().equals(blk.optString("prevShardsRoot")) + " beaconValid=" + n.ledger.beaconRevealValid(blk)); return resp("reject: bad links/hash"); }
-                        if (!n.ledger.txsValid(blk, NetNode.PUB_BY_ID)) { System.out.println("VOTE-REJECT bad txs h=" + h); return resp("reject: bad txs"); }
+                        if (!n.ledger.txsValid(blk, n.PUB_BY_ID)) { System.out.println("VOTE-REJECT bad txs h=" + h); return resp("reject: bad txs"); }
                         JSONObject prev = n.votedAt.get(h);
                         if (prev != null && !prev.getString("hash").equals(hash)) return resp("reject: already voted at height " + h);
                         JSONObject myVote = new JSONObject().put("valId", n.id).put("height", h).put("hash", hash).put("sig", PhantomCrypto.hex(n.voteSig(hash)));
@@ -299,7 +299,7 @@ final class NodeRpc {
                     JSONObject blk = new JSONObject(b);
                     if (!n.verifyQC(blk)) return resp("reject: insufficient quorum");
                     if (!n.seenBlock.add(blk.getString("hash"))) return resp("dup");
-                    String res; synchronized (n.ledger) { res = n.ledger.commitBlock(blk, NetNode.PUB_BY_ID); if ("appended".equals(res)) n.save(); }
+                    String res; synchronized (n.ledger) { res = n.ledger.commitBlock(blk, n.PUB_BY_ID); if ("appended".equals(res)) n.save(); }
                     return resp("commit=" + res);
                 }
 

@@ -44,11 +44,12 @@ public class NetNode extends NanoHTTPD {
     // consensus loop grows them in syncValidatorSet on a validator join. Both volatile + N published LAST
     // (see syncValidatorSet) so a reader that sees the new N is guaranteed to see the matching VAL_IDS array.
     volatile String[] VAL_IDS;     // validator ids by position (per-node view, tracks N)
-    // id -> consensus pubkey: written by the consensus loop (syncValidatorSet) and read by handler threads
-    // (commitBlock/verifyQC/enqueueSlash), so it must be concurrent, not a plain HashMap (resize race).
-    static final Map<String, MLDSAPublicKeyParameters> PUB_BY_ID = new ConcurrentHashMap<>();
-    static Genesis GEN;            // the chain definition (validator set), loaded once per process
-    static final Map<String, String> GEN_VALPUBS = new HashMap<>();   // genesis id -> pubkey hex (seeds ledger.valPubs)
+    // id -> consensus pubkey. Per node instance (NOT static — two nodes in one JVM must not share node
+    // state; a different-genesis node would otherwise clobber it). Concurrent because the consensus loop
+    // writes it in syncValidatorSet while handler threads read it (commitBlock/verifyQC/enqueueSlash).
+    final Map<String, MLDSAPublicKeyParameters> PUB_BY_ID = new ConcurrentHashMap<>();
+    Genesis GEN;                   // the chain definition (validator set) — per node instance
+    final Map<String, String> GEN_VALPUBS = new HashMap<>();   // genesis id -> pubkey hex (seeds ledger.valPubs) — per node instance
 
     volatile int index;            // -1 = observer until it joins via VALJOIN
     final int certIndex;           // TLS cert slot
@@ -82,10 +83,9 @@ public class NetNode extends NanoHTTPD {
     fi.iki.elonen.NanoHTTPD readServer;   // the open-read server (server-auth TLS, NO client cert)
     javax.net.ssl.SSLContext tls;
 
-    static synchronized void initFromGenesis(Genesis gen) {
-        if (GEN != null) return;
+    void initFromGenesis(Genesis gen) {
         GEN = gen;
-        for (Genesis.Validator v : gen.validators) {   // process-global identity material (append-only, same for every node)
+        for (Genesis.Validator v : gen.validators) {   // this node's identity material (append-only over the chain)
             PUB_BY_ID.put(v.id, PhantomCrypto.pubKey(v.pubkeyHex));
             GEN_VALPUBS.put(v.id, v.pubkeyHex);
         }

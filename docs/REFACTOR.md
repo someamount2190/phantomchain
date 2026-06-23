@@ -34,13 +34,22 @@ asserts `stateRoot()` + `accountsMerkleRoot()` against pinned hex constants for
 change in the layout becomes a precise red, not a silent fork — the safety net every
 later step runs against.
 
-## Step 1 — extract the serialization codec ✅ DONE (account state root + Merkle)
+## Step 1 — extract the serialization codec ✅ DONE
 
-`StateRootCodec` now owns the `stateRoot()` byte layout and the authenticated account
-Merkle commitment (root/proof/verify). `Ledger` keeps thin delegators so all ~40 call
-sites are unchanged; `Ledger` dropped ~156 lines. Verified byte-identical by the
-golden vectors + the full suite. **Remaining for this step:** move `toJson`/`fromJson`
-and `shardsRoot`/`shardData` into the codec too (same pattern, same guard).
+`StateRootCodec` owns the ENTIRE consensus byte surface: `stateRoot()`, the
+authenticated account Merkle commitment (root/proof/verify), the per-shard state roots
+(`shardsRoot`/`shardData`), and full-state persistence (`toJson`/`fromJson`). `Ledger`
+keeps thin delegators so all call sites are unchanged. Golden net is 40 checks (sr +
+amr + shardsRoot + a toJson↔fromJson round-trip × v1/v2/full/m1 × {genesis, mutated}),
+in CI. Verified byte-identical.
+
+## Step 2 — extract leaf subsystems behind interfaces (in progress)
+
+First leaf done: **`BridgeLogic`** — the cross-chain custodian M-of-N verification
+(`verifyBridgeIn`/`verifyOracle`/`bridgeOutCanon`) moved out; bridge state stays in
+`Ledger`; delegators keep call sites unchanged. Guarded by `BridgeAdversaryTest`.
+Next, same pattern: Estate (inactivity claim), Governance (proposal lifecycle),
+Recovery (guardian M-of-N), Beacon (commit-reveal). `Ledger`: 1640 → 1293 lines so far.
 
 ## Step 2 — extract leaf subsystems behind interfaces, one at a time
 

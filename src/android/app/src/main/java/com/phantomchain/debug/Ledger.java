@@ -832,26 +832,9 @@ public class Ledger {
         System.arraycopy(dom, 0, in, 0, dom.length); System.arraycopy(pk, 0, in, dom.length, pk.length);
         return PhantomCrypto.hex(PhantomCrypto.shake256(in, 20));   // deterministic 20-byte external address
     }
-    static String bridgeOutCanon(JSONObject tx) throws Exception {
-        return "bridgeout|" + tx.optString("cid", "") + "|" + tx.getString("actor") + "|" + tx.getString("chain")
-                + "|" + tx.getString("extAddr") + "|" + tx.getLong("amount") + "|" + tx.optLong("fee", 0) + "|" + tx.getLong("nonce");
-    }
+    static String bridgeOutCanon(JSONObject tx) throws Exception { return BridgeLogic.bridgeOutCanon(tx); }
     /** Inbound: >=M custodians attest an external deposit -> release PHNT from the reserve to the recipient. */
-    boolean verifyBridgeIn(JSONObject tx) throws Exception {
-        if (!chainId.equals(tx.optString("cid", ""))) return false;
-        if (bridgeProcessed.contains(tx.getString("extTxid"))) return false;       // replay guard
-        String recipient = tx.getString("recipient"); long amount = tx.getLong("amount");
-        if (amount <= 0 || balanceOf(BRIDGE_RESERVE) < amount) return false;        // conservation: release only what's reserved
-        String msg = "bridgein|" + chainId + "|" + recipient + "|" + amount + "|" + tx.getString("extTxid");
-        JSONArray ap = tx.getJSONArray("approvals"); java.util.Set<String> seen = new java.util.HashSet<>(); int ok = 0;
-        for (int i = 0; i < ap.length(); i++) {
-            JSONObject a = ap.getJSONObject(i);
-            String cust = a.getString("custodian"), pub = a.getString("pub");
-            if (!pub.equals(custodians.get(cust)) || !seen.add(cust)) continue;     // distinct, registered custodian
-            if (PhantomCrypto.verify(pk(pub), PhantomCrypto.utf8(msg), PhantomCrypto.unhex(a.getString("sig")))) ok++;
-        }
-        return ok >= bridgeThreshold;
-    }
+    boolean verifyBridgeIn(JSONObject tx) throws Exception { return BridgeLogic.verifyBridgeIn(this, tx); }
     JSONObject buildBridgeOutTx(String actor, String chain, String ext, long amount, long fee, long nonce, MLDSAPrivateKeyParameters key) throws Exception {
         JSONObject tx = new JSONObject().put("from", "BRIDGE_OUT").put("actor", actor).put("chain", chain).put("extAddr", ext)
                 .put("amount", amount).put("fee", fee).put("nonce", nonce).put("cid", chainId)
@@ -867,12 +850,7 @@ public class Ledger {
         return new JSONObject().put("from", "BRIDGE_IN").put("recipient", recipient).put("amount", amount)
                 .put("extTxid", extTxid).put("cid", chainId).put("approvals", approvals);
     }
-    boolean verifyOracle(JSONObject tx) throws Exception {
-        if (!chainId.equals(tx.optString("cid", ""))) return false;
-        String cust = tx.getString("custodian"), pub = tx.getString("pub");
-        if (!pub.equals(custodians.get(cust))) return false;   // only registered custodians may post rates
-        return PhantomCrypto.verify(pk(pub), PhantomCrypto.utf8("oracle|" + chainId + "|" + tx.getString("pair") + "|" + tx.getLong("rate")), PhantomCrypto.unhex(tx.getString("sig")));
-    }
+    boolean verifyOracle(JSONObject tx) throws Exception { return BridgeLogic.verifyOracle(this, tx); }
     JSONObject buildOracleTx(String custodianId, MLDSAPrivateKeyParameters custKey, String pair, long rate) throws Exception {
         String pub = PhantomCrypto.hex(custKey.getPublicKeyParameters().getEncoded());
         byte[] sig = PhantomCrypto.sign(custKey, PhantomCrypto.utf8("oracle|" + chainId + "|" + pair + "|" + rate));

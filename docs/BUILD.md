@@ -285,6 +285,8 @@ Endpoints are HTTPS — `curl -sk`. Open reads: `/status /econ /head /peers /blo
 
 Verified: 3 nodes negotiate TLS 1.3, discover over TLS, and reach quorum-certificate consensus over the encrypted channel (CA cert needs `BasicConstraints cA=true` for PKIX — gotcha). The one documented gap vs. "PQ everywhere" is the TLS **key exchange**, which is classical X25519 in v1; ML-KEM hybrid KEX is the BCJSSE/JDK-27 upgrade. Code: `node/TlsSetup.java`.
 
+**Dependency status — `nanohttpd 2.3.1` (tracked):** the embedded HTTP server on every node is its one unmaintained dependency (last release 2017). It is not currently exposed to unauthenticated networks: the peer port is mTLS-only (TLS 1.3 + per-cluster CA, so it never faces an unauthenticated client) and the open read port serves only the `READ_ENDPOINTS` allowlist (no writes/consensus). Malformed requests now return `400` without a stack trace (no log-flood vector). Before any untrusted-network exposure, replace it with a maintained embedded server (or vendor it behind a security review). Cross-referenced at the dependency declaration in `build.gradle`.
+
 ### Mining economics (simulation)
 Simulates the spec's §9 model on the networked node (`GET /econ` shows it live):
 - **Weight** = `0.6·√stake-share + 0.4·identity-share` over non-slashed validators (10% cap is a server param, not binding at N=3). Verified with stakes `[4M,1M,1M]` + identity `[1,1,2]` → weights **40% / 25% / 35%**: node0's 4× stake yields only 40% (√-damped), node2's extra human lifts it to 35%.

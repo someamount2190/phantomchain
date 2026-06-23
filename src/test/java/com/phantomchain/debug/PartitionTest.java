@@ -37,20 +37,9 @@ public class PartitionTest {
     static Map<String, MLDSAPublicKeyParameters> pub = new HashMap<>();
 
     static Ledger genesis(int n) throws Exception {
-        N = n; keys = new MLDSAPrivateKeyParameters[n]; ids = new String[n]; ctr = new long[n]; pub.clear();
-        LinkedHashMap<String, Long> alloc = new LinkedHashMap<>();
-        List<String> vals = new ArrayList<>(); Map<String, Long> stk = new HashMap<>(), idn = new HashMap<>();
-        Set<String> ver = new HashSet<>(); Map<String, String> vp = new HashMap<>(), bc = new HashMap<>();
-        for (int i = 0; i < n; i++) {
-            keys[i] = PhantomCrypto.randomDeviceKey();
-            ids[i] = PhantomCrypto.hex(PhantomCrypto.sha3_256(keys[i].getPublicKeyParameters().getEncoded()));
-            pub.put(ids[i], new MLDSAPublicKeyParameters(MLDSAParameters.ml_dsa_65, keys[i].getPublicKeyParameters().getEncoded()));
-            alloc.put(ids[i], 1_000_000L); vals.add(ids[i]); stk.put(ids[i], 1_000_000L); idn.put(ids[i], 1L);
-            ver.add(ids[i]); vp.put(ids[i], PhantomCrypto.hex(keys[i].getPublicKeyParameters().getEncoded()));
-            bc.put(ids[i], Ledger.beaconCommit0For(keys[i].getEncoded()));
-        }
-        Ledger L = new Ledger(); L.genesisEcon("pc-part", alloc, vals, stk, idn, ver, vp, bc, 1700000000000L);
-        L.committeeSize = 0; return L;
+        ConsensusFixture f = ConsensusFixture.genesis(n, "pc-part");
+        N = n; keys = f.keys; ids = f.ids; ctr = new long[n]; pub.clear(); pub.putAll(f.pub);
+        return f.L;
     }
 
     /** Forge a block with EXPLICIT height/prevHash (for reorg/long-range attacks), signed by `signers`. */
@@ -72,20 +61,7 @@ public class PartitionTest {
         int h = L.chain.size(); int p = L.proposerFor(L.lastHash(), h, 0);
         return forge(L, h, L.lastHash(), p, 0, signers, ts);
     }
-    static boolean verifyQC(Ledger L, JSONObject b) throws Exception {
-        JSONArray qc = b.optJSONArray("qc"); if (qc == null) return false;
-        String hash = b.getString("hash"); int h = b.getInt("height");
-        int legit = L.proposerFor(b.getString("prevHash"), h, b.optInt("view", 0));
-        if (b.optInt("proposer", -1) != legit || L.excluded(L.validators.get(legit))) return false;
-        Set<Integer> committee = new HashSet<>(L.committeeFor(h)), ok = new HashSet<>();
-        for (int i = 0; i < qc.length(); i++) {
-            JSONObject v = qc.getJSONObject(i); int idx = v.getInt("i");
-            if (idx < 0 || idx >= N || L.excluded(L.validators.get(idx)) || !committee.contains(idx)) continue;
-            MLDSAPublicKeyParameters p = pub.get(L.validators.get(idx));
-            if (p != null && PhantomCrypto.verify(p, PhantomCrypto.utf8(hash), PhantomCrypto.unhex(v.getString("sig")))) ok.add(idx);
-        }
-        return ok.size() >= L.committeeQuorum(h);
-    }
+    static boolean verifyQC(Ledger L, JSONObject b) throws Exception { return ConsensusFixture.verifyQC(L, pub, b); }
     /** Mirrors NetNode.syncFromPeers: accept a peer block only if verifyQC passes AND it cleanly appends. */
     static boolean syncAccepts(Ledger L, JSONObject b) throws Exception {
         if (b.has("error") || !verifyQC(L, b)) return false;

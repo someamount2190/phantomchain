@@ -67,21 +67,10 @@ public class EstateAttackTest {
 
     // ---- harness ----
     static Ledger genesis(int n) throws Exception {
-        N = n; keys = new MLDSAPrivateKeyParameters[n]; ids = new String[n]; ctr = new long[n]; pub.clear();
-        LinkedHashMap<String, Long> alloc = new LinkedHashMap<>();
-        List<String> vals = new ArrayList<>(); Map<String, Long> stk = new HashMap<>(), idn = new HashMap<>();
-        Set<String> ver = new HashSet<>(); Map<String, String> vp = new HashMap<>(), bc = new HashMap<>();
-        for (int i = 0; i < n; i++) {
-            keys[i] = PhantomCrypto.randomDeviceKey();
-            ids[i] = PhantomCrypto.hex(PhantomCrypto.sha3_256(keys[i].getPublicKeyParameters().getEncoded()));
-            pub.put(ids[i], new MLDSAPublicKeyParameters(MLDSAParameters.ml_dsa_65, keys[i].getPublicKeyParameters().getEncoded()));
-            alloc.put(ids[i], 1_000_000L); vals.add(ids[i]); stk.put(ids[i], 1_000_000L); idn.put(ids[i], 1L);
-            ver.add(ids[i]); vp.put(ids[i], PhantomCrypto.hex(keys[i].getPublicKeyParameters().getEncoded()));
-            bc.put(ids[i], Ledger.beaconCommit0For(keys[i].getEncoded()));
-        }
-        Ledger g = new Ledger(); g.genesisEcon("pc-estate", alloc, vals, stk, idn, ver, vp, bc, 1700000000000L);
-        g.committeeSize = 0; g.blockReward = 0;   // no emission -> exact balance assertions (estate transfer)
-        return g;
+        ConsensusFixture f = ConsensusFixture.genesis(n, "pc-estate");
+        N = n; keys = f.keys; ids = f.ids; ctr = new long[n]; pub.clear(); pub.putAll(f.pub);
+        f.L.blockReward = 0;   // no emission -> exact balance assertions (estate transfer)
+        return f.L;
     }
     static JSONObject claim(String acct) throws Exception { return claim(L, acct); }
     static JSONObject claim(Ledger g, String acct) throws Exception { return g.buildClaimTx(acct, (long) (Math.random() * 1e9)); }

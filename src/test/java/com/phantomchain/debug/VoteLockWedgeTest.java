@@ -38,22 +38,7 @@ import java.util.Set;
 public class VoteLockWedgeTest {
 
     static Ledger genesis(int n) throws Exception {
-        LinkedHashMap<String, Long> alloc = new LinkedHashMap<>();
-        List<String> vals = new ArrayList<>();
-        Map<String, Long> stk = new HashMap<>(), idn = new HashMap<>();
-        Set<String> ver = new HashSet<>();
-        Map<String, String> vp = new HashMap<>(), bc = new HashMap<>();
-        for (int i = 0; i < n; i++) {
-            MLDSAPrivateKeyParameters k = PhantomCrypto.randomDeviceKey();
-            String id = PhantomCrypto.hex(PhantomCrypto.sha3_256(k.getPublicKeyParameters().getEncoded()));
-            alloc.put(id, 1_000_000L); vals.add(id); stk.put(id, 1_000_000L); idn.put(id, 1L); ver.add(id);
-            vp.put(id, PhantomCrypto.hex(k.getPublicKeyParameters().getEncoded()));
-            bc.put(id, Ledger.beaconCommit0For(k.getEncoded()));
-        }
-        Ledger L = new Ledger();
-        L.genesisEcon("pc-wedge", alloc, vals, stk, idn, ver, vp, bc, 1700000000000L);
-        L.committeeSize = 0;   // full live set signs
-        return L;
+        return ConsensusFixture.genesis(n, "pc-wedge").L;
     }
 
     /** The exact preimage sealBlock/commitBlock/buildProposal use: chainId|height|prevHash|txs|ts. */

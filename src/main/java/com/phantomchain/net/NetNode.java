@@ -16,7 +16,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-import fi.iki.elonen.NanoHTTPD;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -34,7 +33,7 @@ import org.bouncycastle.pqc.crypto.mldsa.MLDSAPublicKeyParameters;
  *     stake and ejects it (excluded from quorum + proposing). Crash- AND equivocation-accountable.
  * Commit = 2-of-3 quorum certificate of standard ML-DSA signatures (multisig, not a true threshold sig).
  */
-public class NetNode extends NanoHTTPD {
+public class NetNode {
 
     volatile int N;                // validator count (per-node view; grows as this node processes joins)
     static final long VIEW_TIMEOUT = 3000L;
@@ -79,8 +78,10 @@ public class NetNode extends NanoHTTPD {
     static final Set<String> READ_ENDPOINTS = new HashSet<>(java.util.Arrays.asList(
             "/status", "/econ", "/identity", "/head", "/account", "/stateproof", "/shard", "/extaddr", "/bridge/outs",
             "/oracle", "/identity-info", "/body", "/rsshard", "/block", "/peers", "/genesis", "/gov"));
+    int rpcPort;                           // mTLS peer port (was the NanoHTTPD super-constructor port)
     int readPort;                          // open read port (rpcPort + 1 by default)
-    fi.iki.elonen.NanoHTTPD readServer;   // the open-read server (server-auth TLS, NO client cert)
+    NodeHttpServer peerServer;            // mTLS peer server (REQUIRED client cert) — consensus / gossip / writes
+    NodeHttpServer readServer;            // open-read server (server-auth TLS, NO client cert)
     javax.net.ssl.SSLContext tls;
 
     void initFromGenesis(Genesis gen) {
@@ -92,7 +93,7 @@ public class NetNode extends NanoHTTPD {
     }
 
     NetNode(Genesis gen, NodeConfig cfg, MLDSAPrivateKeyParameters key) throws Exception {
-        super(cfg.rpcPort);
+        this.rpcPort = cfg.rpcPort;
         initFromGenesis(gen);
         this.N = gen.validators.size();                // per-node validator view (so in-process nodes don't share one)
         this.VAL_IDS = new String[N];
@@ -174,39 +175,18 @@ public class NetNode extends NanoHTTPD {
             throw new IllegalStateException("TLS cert (node-" + certIndex + ".p12) missing in " + certDir
                     + " (run the genesis ceremony / mintcert and place this node's cert there)");
         tls = TlsSetup.context(certDir, certIndex);
-        // mTLS: the server socket (with a REQUIRED peer client cert) is supplied by getServerSocketFactory()
-        // below — we bypass makeSecure(), whose SecureServerSocketFactory.create() hard-resets
-        // setNeedClientAuth(false) (verified in the 2.3.1 bytecode), which would silently defeat client auth.
-        start();
-        // open READ port (server-auth TLS, NO client cert): the documented open read endpoints stay
-        // queryable by curl, while the peer port (rpcPort) requires a client cert (mTLS) for everything.
-        readServer = new fi.iki.elonen.NanoHTTPD(readPort) {
-            @Override public Response serve(IHTTPSession s) { return NetNode.this.serveRead(s); }
-        };
-        readServer.makeSecure(tls.getServerSocketFactory(), new String[]{"TLSv1.3", "TLSv1.2"});
-        readServer.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
+        // Peer port: mTLS — every peer MUST present a node cert signed by the cluster CA (needClientAuth=true).
+        // Read port: server-auth TLS only (no client cert), serving just the READ_ENDPOINTS allowlist, so the
+        // documented open read endpoints stay curl-queryable while consensus/gossip/writes require a cert.
+        peerServer = new NodeHttpServer(rpcPort, tls, true, this::serve);
+        readServer = new NodeHttpServer(readPort, tls, false, this::serveRead);
+        peerServer.start();
+        readServer.start();
         System.out.println("node" + index + " (" + GEN.chainId + ") up at " + selfAddr + " TLS=on("
                 + (TlsSetup.hybrid ? "BCJSSE, PQ-hybrid X25519MLKEM768 offered" : "JDK TLSv1.3")
                 + ") seeds=" + seeds + " persistedVotes=" + votedAt.size());
         new Thread(this::discoveryLoop, "disc-" + index).start();
         new Thread(consensus::loop, "cons-" + index).start();
-    }
-
-    /** mTLS server socket: a peer MUST present a node cert signed by the cluster CA. We override the
-     *  factory NanoHTTPD's start() uses (getServerSocketFactory().create()) rather than makeSecure(),
-     *  because NanoHTTPD 2.3.1's SecureServerSocketFactory.create() hard-resets setNeedClientAuth(false)
-     *  after our factory returns — silently defeating client auth. The genesis node cert carries no
-     *  extendedKeyUsage restriction, so it doubles as the client credential each peer already presents
-     *  via its SSLContext KeyManager (ARCHITECTURE §6). */
-    @Override
-    public fi.iki.elonen.NanoHTTPD.ServerSocketFactory getServerSocketFactory() {
-        final javax.net.ssl.SSLContext ctx = tls;
-        return () -> {
-            javax.net.ssl.SSLServerSocket ss = (javax.net.ssl.SSLServerSocket) ctx.getServerSocketFactory().createServerSocket();
-            ss.setNeedClientAuth(true);
-            ss.setEnabledProtocols(new String[]{"TLSv1.3", "TLSv1.2"});
-            return ss;
-        };
     }
 
     /** Crash-safe write: stage to a temp file, then atomically rename over the target. */
@@ -312,15 +292,16 @@ public class NetNode extends NanoHTTPD {
     void mergePeers(String json) { try { JSONObject o = new JSONObject(json); for (String k : o.keySet()) peers.putIfAbsent(Integer.parseInt(k), o.getString(k)); } catch (Exception e) { System.err.println("mergePeers: dropping malformed peer map: " + e); } }
 
     /** Open-read-port handler — delegates to the RPC layer's read-allowlist gate. */
-    Response serveRead(IHTTPSession s) { return rpc.serveRead(s); }
+    Resp serveRead(Req s) { return rpc.serveRead(s); }
 
-    @Override
+    /** mTLS peer-port handler — full RPC surface. */
+    Resp serve(Req s) { return rpc.serve(s); }
+
     public void stop() {
+        running = false;
+        try { if (peerServer != null) peerServer.stop(); } catch (Exception e) { }
         try { if (readServer != null) readServer.stop(); } catch (Exception e) { }
-        super.stop();
     }
-
-    @Override public Response serve(IHTTPSession s) { return rpc.serve(s); }
 
     // ---- equivocation detection ----
     void handleIncomingVote(JSONObject v) {

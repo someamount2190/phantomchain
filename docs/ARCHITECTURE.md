@@ -133,10 +133,10 @@ proposer-legitimacy check + state-root agreement.
 ## 6. Networking & transport (`NetNode`)
 
 - **Transport:** TLS 1.3 over a per-cluster EC CA (`TlsSetup`); CA retained (`ca.p12`) for validator
-  onboarding. **mTLS client-auth is enforced on the PEER port** (`rpcPort`) by overriding
-  `getServerSocketFactory()` to `setNeedClientAuth(true)` — NanoHTTPD 2.3.1's `makeSecure()` hard-resets it
-  to false in `SecureServerSocketFactory.create()` (verified in the bytecode), so the override is required.
-  A separate **OPEN READ port** (`readPort` = `rpcPort+1`) runs server-auth TLS (no client cert) and serves
+  onboarding. The HTTP layer is the JDK's built-in `HttpsServer` (`NodeHttpServer`; no third-party web
+  server). **mTLS client-auth is enforced on the PEER port** (`rpcPort`) via the `HttpsConfigurator`
+  setting `SSLParameters.setNeedClientAuth(true)`. A separate **OPEN READ port** (`readPort` = `rpcPort+1`)
+  runs server-auth TLS (`needClientAuth=false`, no client cert) and serves
   only the read-only allowlist (`READ_ENDPOINTS`), preserving the open read-endpoints split; writes /
   consensus / gossip stay on the mTLS peer port (`MtlsTest` 4/4 + `ReadPeerSplitTest` 6/6). Message-layer
   ML-DSA + op-token remain.

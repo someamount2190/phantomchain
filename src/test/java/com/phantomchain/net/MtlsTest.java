@@ -14,18 +14,12 @@ import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLServerSocket;
 import javax.net.ssl.TrustManagerFactory;
 
-import fi.iki.elonen.NanoHTTPD;
-
 /**
- * mTLS enforcement test (ARCHITECTURE §6 documented next hardening). Spins up the real NanoHTTPD server
- * (the production class NetNode extends) using the mTLS server-socket override, then proves against the
- * cluster CA that a valid node-cert peer is accepted (200) while a no-cert peer and a foreign-CA peer are
- * rejected. NanoHTTPD 2.3.1's makeSecure() path hard-resets needClientAuth=false in
- * SecureServerSocketFactory.create() (verified in the bytecode), so mTLS is wired by overriding
- * getServerSocketFactory() — the same override NetNode uses in production.
+ * mTLS enforcement test (ARCHITECTURE §6). Spins up the production NodeHttpServer (the JDK-HttpsServer
+ * wrapper NetNode uses, needClientAuth=true) and proves against the cluster CA that a valid node-cert peer
+ * is accepted (200) while a no-cert peer and a foreign-CA peer are rejected at the TLS handshake.
  */
 public class MtlsTest {
 
@@ -77,21 +71,11 @@ public class MtlsTest {
 
         int port = freePort();
         final SSLContext serverCtx = TlsSetup.context(cluster, 0);          // server presents node-0 cert, trusts cluster CA
-        NanoHTTPD srv = new NanoHTTPD(port) {
-            @Override public Response serve(IHTTPSession session) { return newFixedLengthResponse("ok"); }
-            @Override public fi.iki.elonen.NanoHTTPD.ServerSocketFactory getServerSocketFactory() {   // mTLS via override (makeSecure resets it)
-                return () -> {
-                    SSLServerSocket ss = (SSLServerSocket) serverCtx.getServerSocketFactory().createServerSocket();
-                    ss.setNeedClientAuth(true);
-                    ss.setEnabledProtocols(new String[]{"TLSv1.3", "TLSv1.2"});
-                    return ss;
-                };
-            }
-        };
-        srv.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
+        NodeHttpServer srv = new NodeHttpServer(port, serverCtx, true, req -> new Resp(200, "ok"));   // mTLS: require client cert
+        srv.start();
         Thread.sleep(400);                                                 // let the listener bind
 
-        System.out.println("[mTLS enforcement, NanoHTTPD server on :" + port + "]");
+        System.out.println("[mTLS enforcement, NodeHttpServer on :" + port + "]");
         ok("peer with a valid node cert (node-1) is accepted (200)", get(TlsSetup.context(cluster, 1), port));
         ok("peer with a valid node cert (node-2) is accepted (200)", get(TlsSetup.context(cluster, 2), port));
         ok("peer with NO client cert is rejected (client auth required)", !get(noCert, port));

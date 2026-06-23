@@ -12,12 +12,6 @@ import org.json.JSONException;
 import org.json.JSONObject;
 import org.bouncycastle.pqc.crypto.mldsa.MLDSAPublicKeyParameters;
 
-import fi.iki.elonen.NanoHTTPD;
-import fi.iki.elonen.NanoHTTPD.IHTTPSession;
-import fi.iki.elonen.NanoHTTPD.Response;
-import static fi.iki.elonen.NanoHTTPD.newFixedLengthResponse;
-import static fi.iki.elonen.NanoHTTPD.MIME_PLAINTEXT;
-
 /**
  * The HTTP API surface — request routing, parsing, the operator-token gate, and the ~33 endpoint handlers,
  * extracted from {@link NetNode}.
@@ -32,10 +26,10 @@ final class NodeRpc {
     final NetNode n;
     NodeRpc(NetNode n) { this.n = n; }
 
-    Response resp(String b) { return newFixedLengthResponse(b + "\n"); }
-    String param(IHTTPSession s, String k) { List<String> v = s.getParameters().get(k); return (v == null || v.isEmpty()) ? null : v.get(0); }
-    String body(IHTTPSession s) { Map<String, String> f = new HashMap<>(); try { s.parseBody(f); } catch (Exception e) { return null; } String b = f.get("postData"); return (b != null && b.length() > 1_048_576) ? null : b; }
-    boolean opAuth(IHTTPSession s) { return NetNode.OP_TOKEN.isEmpty() || NetNode.OP_TOKEN.equals(param(s, "token")); }   // open if no token configured
+    Resp resp(String b) { return new Resp(200, b + "\n"); }
+    String param(Req s, String k) { return s.query.get(k); }
+    String body(Req s) { return s.body; }   // raw request body (capped at 1 MiB in Req), null if absent
+    boolean opAuth(Req s) { return NetNode.OP_TOKEN.isEmpty() || NetNode.OP_TOKEN.equals(param(s, "token")); }   // open if no token configured
 
     String status() throws Exception {
         StringBuilder bal = new StringBuilder();
@@ -75,17 +69,17 @@ final class NodeRpc {
 
     /** Open-read-port handler: serve the read-only allowlist, reject everything else (writes / consensus
      *  / gossip stay on the mTLS peer port). */
-    Response serveRead(IHTTPSession s) {
-        if (!NetNode.READ_ENDPOINTS.contains(s.getUri()))
-            return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "not exposed on the open read port (use the mTLS peer port)\n");
+    Resp serveRead(Req s) {
+        if (!NetNode.READ_ENDPOINTS.contains(s.uri))
+            return new Resp(403, "not exposed on the open read port (use the mTLS peer port)\n");
         return serve(s);
     }
 
-    Response serve(IHTTPSession s) {
-        String uri = s.getUri();
+    Resp serve(Req s) {
+        String uri = s.uri;
         try {
             if (NetNode.OP_ENDPOINTS.contains(uri) && !opAuth(s))
-                return newFixedLengthResponse(Response.Status.UNAUTHORIZED, MIME_PLAINTEXT, "operator token required\n");
+                return new Resp(401, "operator token required\n");
             switch (uri) {
                 case "/status": synchronized (n.ledger) { return resp(status()); }
                 case "/econ": synchronized (n.ledger) { return resp(econReport(n.ledger, n.N, n.VAL_IDS)); }
@@ -310,7 +304,7 @@ final class NodeRpc {
                     return resp("ok");
                 }
                 case "/byz/equivocate": {   // DEBUG-only adversary hook; disabled unless PC_DEBUG=1
-                    if (!NetNode.DEBUG_ENDPOINTS) return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "no route\n");
+                    if (!NetNode.DEBUG_ENDPOINTS) return new Resp(404, "no route\n");
                     int h; synchronized (n.ledger) { h = n.ledger.chainSize(); }
                     String ha = PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8("equivA|" + h)));
                     String hb = PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8("equivB|" + h)));
@@ -319,17 +313,17 @@ final class NodeRpc {
                     n.gossipVote(vA); n.gossipVote(vB);
                     return resp("equivocated at height " + h + " (two conflicting signed votes broadcast)");
                 }
-                default: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "no route\n");
+                default: return new Resp(404, "no route\n");
             }
         } catch (JSONException | IllegalArgumentException e) {
             // Malformed request: bad JSON body, missing/unparseable params (NumberFormatException is an
             // IllegalArgumentException). This is the caller's fault, not ours -> 400, and no stack trace
             // (an unauthenticated peer must not be able to flood our logs by spamming garbage bodies).
-            return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "bad request: " + e.getMessage() + "\n");
+            return new Resp(400, "bad request: " + e.getMessage() + "\n");
         } catch (Exception e) {
             // Genuine server-side fault: keep the stack trace, it's a real bug to investigate.
             e.printStackTrace();
-            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "ERR " + e.getClass().getSimpleName() + ": " + e.getMessage() + "\n");
+            return new Resp(500, "ERR " + e.getClass().getSimpleName() + ": " + e.getMessage() + "\n");
         }
     }
 }

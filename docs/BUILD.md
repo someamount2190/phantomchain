@@ -244,7 +244,7 @@ $st = "C:\Users\Christian Correa\OneDrive\Desktop\Projects\PhantomChain\src"
 $adir = "$st\android\app\src\main\java\com\phantomchain\debug"
 javac -cp "$st\lib\*" -d "$st\node\out" "$adir\PhantomCrypto.java" "$adir\Ledger.java" "$st\node\NetNode.java" "$st\node\NodeMain.java"
 ```
-Needs `lib\json-20240303.jar` + `lib\nanohttpd-2.3.1.jar` (+ bcprov) — fetch from Maven Central if missing.
+Needs `lib\json-20240303.jar` (+ bcprov) — fetch from Maven Central if missing. (The node's HTTP server is the JDK's built-in `HttpsServer`; no web-server jar is required.)
 
 **Run** — the node CLI is a **genesis-ceremony flow** (`keygen` → `genesis` → `run`; plus `mintcert` to issue a cert for a joining validator from the retained cluster CA). The canonical, verified recipe is **`node/beacon-test.sh`** — a fresh 3-validator testnet on ports **9190–9192** (TLS 1.3, commit-reveal RANDAO beacon, then a node restart to prove `beaconCtr` resync doesn't stall consensus). What it does:
 1. `NodeMain keygen <keyFile>` ×3 → each prints `pubkey`, `id`, and `beaconCommit0` (binds that validator's first RANDAO reveal at genesis);
@@ -285,7 +285,7 @@ Endpoints are HTTPS — `curl -sk`. Open reads: `/status /econ /head /peers /blo
 
 Verified: 3 nodes negotiate TLS 1.3, discover over TLS, and reach quorum-certificate consensus over the encrypted channel (CA cert needs `BasicConstraints cA=true` for PKIX — gotcha). The one documented gap vs. "PQ everywhere" is the TLS **key exchange**, which is classical X25519 in v1; ML-KEM hybrid KEX is the BCJSSE/JDK-27 upgrade. Code: `node/TlsSetup.java`.
 
-**Dependency status — `nanohttpd 2.3.1` (tracked):** the embedded HTTP server on every node is its one unmaintained dependency (last release 2017). It is not currently exposed to unauthenticated networks: the peer port is mTLS-only (TLS 1.3 + per-cluster CA, so it never faces an unauthenticated client) and the open read port serves only the `READ_ENDPOINTS` allowlist (no writes/consensus). Malformed requests now return `400` without a stack trace (no log-flood vector). Before any untrusted-network exposure, replace it with a maintained embedded server (or vendor it behind a security review). Cross-referenced at the dependency declaration in `build.gradle`.
+**Node HTTP server — JDK `HttpsServer` (no third-party web server):** the node's HTTP layer is the JDK's built-in `com.sun.net.httpserver.HttpsServer` (module `jdk.httpserver`), wrapped by `NodeHttpServer`. The former `org.nanohttpd:nanohttpd:2.3.1` dependency (last released 2017) was removed — the JVM build no longer depends on it. mTLS is configured cleanly via `HttpsConfigurator` (`needClientAuth=true` on the peer port; `false` on the open read port), replacing the old workaround for NanoHTTPD's `makeSecure()` resetting client auth. The on-device `ClusterMember` service (shared engine, runs on Android where `com.sun.net.httpserver` is absent) uses a minimal raw-socket HTTP/1.1 loop. Malformed requests return `400` without a stack trace (no log-flood vector). *(The Android app's debug `PropMeshServer` still uses NanoHTTPD — that's the app build, not the node.)*
 
 ### Mining economics (simulation)
 Simulates the spec's §9 model on the networked node (`GET /econ` shows it live):

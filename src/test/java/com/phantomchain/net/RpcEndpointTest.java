@@ -43,7 +43,7 @@ public class RpcEndpointTest {
             c.setRequestMethod(method);
             if (reqBody != null) {
                 c.setDoOutput(true);
-                c.setRequestProperty("Content-Type", "application/json");   // so NanoHTTPD populates postData (matches NetHttp.post)
+                c.setRequestProperty("Content-Type", "application/json");   // matches NetHttp.post; server reads the raw request body
                 c.getOutputStream().write(reqBody.getBytes(StandardCharsets.UTF_8));
             }
             int code = c.getResponseCode();

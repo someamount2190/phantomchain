@@ -12,16 +12,13 @@ import java.security.SecureRandom;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLServerSocket;
 import javax.net.ssl.TrustManagerFactory;
-
-import fi.iki.elonen.NanoHTTPD;
 
 /**
  * Verifies the read/peer port split that resolves the mTLS design tension: the OPEN read port
  * (server-auth TLS, no client cert) serves only the read-only allowlist; the PEER port (mTLS) requires a
- * client cert and serves everything. Uses the real NetNode.READ_ENDPOINTS allowlist and the same
- * getServerSocketFactory()/makeSecure wiring NetNode uses in production.
+ * client cert and serves everything. Built on the production NodeHttpServer (JDK HttpsServer wrapper) with
+ * the real NetNode.READ_ENDPOINTS allowlist.
  */
 public class ReadPeerSplitTest {
 
@@ -55,30 +52,14 @@ public class ReadPeerSplitTest {
 
         int peer = freePort(), read = freePort();
 
-        // PEER server: mTLS (client cert REQUIRED), full access — mirrors NetNode's getServerSocketFactory override
-        NanoHTTPD peerSrv = new NanoHTTPD(peer) {
-            @Override public Response serve(IHTTPSession s) { return newFixedLengthResponse("ok"); }
-            @Override public fi.iki.elonen.NanoHTTPD.ServerSocketFactory getServerSocketFactory() {
-                return () -> {
-                    SSLServerSocket ss = (SSLServerSocket) serverCtx.getServerSocketFactory().createServerSocket();
-                    ss.setNeedClientAuth(true);
-                    ss.setEnabledProtocols(new String[]{"TLSv1.3", "TLSv1.2"});
-                    return ss;
-                };
-            }
-        };
-        peerSrv.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
+        // PEER server: mTLS (client cert REQUIRED), full access
+        NodeHttpServer peerSrv = new NodeHttpServer(peer, serverCtx, true, req -> new Resp(200, "ok"));
+        peerSrv.start();
 
-        // READ server: server-auth only (NO client cert) via makeSecure, allowlisted to NetNode.READ_ENDPOINTS
-        NanoHTTPD readSrv = new NanoHTTPD(read) {
-            @Override public Response serve(IHTTPSession s) {
-                if (!NetNode.READ_ENDPOINTS.contains(s.getUri()))
-                    return newFixedLengthResponse(Response.Status.FORBIDDEN, MIME_PLAINTEXT, "forbidden\n");
-                return newFixedLengthResponse("ok");
-            }
-        };
-        readSrv.makeSecure(serverCtx.getServerSocketFactory(), new String[]{"TLSv1.3", "TLSv1.2"});
-        readSrv.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
+        // READ server: server-auth only (NO client cert), allowlisted to NetNode.READ_ENDPOINTS
+        NodeHttpServer readSrv = new NodeHttpServer(read, serverCtx, false,
+                req -> NetNode.READ_ENDPOINTS.contains(req.uri) ? new Resp(200, "ok") : new Resp(403, "forbidden\n"));
+        readSrv.start();
         Thread.sleep(400);
 
         System.out.println("[read/peer split — peer=:" + peer + " (mTLS), read=:" + read + " (open)]");

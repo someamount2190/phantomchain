@@ -150,6 +150,14 @@ for ($i=0; $i -lt 90; $i++) {
 
 ## 6. Install, launch, and drive the flow
 
+> **⚠️ Stale (historical):** this section documents the earlier `PropMeshServer` `/debug` drivers and an
+> in-app 3-node cluster (ports 8081–8083) that **no longer exist**. `PropMeshServer` was removed and the
+> in-app cluster was dropped. The current app (`MainActivity`) is the wallet UI — **Enroll / Sign / Backup /
+> Recover / Contribute** — and the only on-device server is `ClusterMember` (single-device cluster
+> contribution on port 8080, biometric-gated; see [the memory map](#1-project-layout) and the runtime test
+> `src/android/app/src/androidTest/.../ClusterMemberTest.java`). The endpoint tables below describe the old
+> flow and are kept only for historical reference. The networked multi-process consensus is **§9**.
+
 The app starts the prop mesh server on device port 8080 in `onCreate`. Forward it and curl the `/debug` drivers (no UI tapping needed).
 ```powershell
 $adb = "$env:ANDROID_HOME\platform-tools\adb.exe"

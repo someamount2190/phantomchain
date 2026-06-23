@@ -48,7 +48,7 @@ dependencies {
 // (or "PASS") and exits. runTests drives the deterministic, headless subset and
 // fails the build on any non-zero "failed" count, exception, or non-zero exit.
 def deterministicTests = [
-    'KnownAnswerTest', 'CryptoAuditTest', 'CryptoBreakTest', 'MerkleProofTest', 'MetamorphicTest',
+    'GoldenStateRootTest', 'KnownAnswerTest', 'CryptoAuditTest', 'CryptoBreakTest', 'MerkleProofTest', 'MetamorphicTest',
     'ClusterTest', 'ClusterGovTest', 'ClusterStoreTest', 'ClusterStoreDkgTest', 'DkgTest',
     'CommitteeTest', 'SybilTest', 'LivenessTest', 'PartitionTest', 'FuzzTest',
     'AdvAdversaryTest', 'AdversaryTest', 'GenuineAdversaryTest', 'BridgeAdversaryTest',

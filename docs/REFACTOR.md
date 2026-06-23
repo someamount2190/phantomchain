@@ -26,23 +26,21 @@ proven, not asserted.
   verbatim, so the state root is byte-identical (guarded by `ClusterTest`’s
   "hashes exactly as before"); a new version is now declared in one typed place.
 
-## Step 0 — pin the state root before moving anything
+## Step 0 — pin the state root before moving anything ✅ DONE
 
-Add a **golden-vector test**: build representative ledgers (empty, post-genesis,
-post-transfers, post-stake/slash, with open governance, `m1`) and assert
-`stateRoot()` equals a pinned hex constant for each, for **v1/v2/full/m1**. This is
-the safety net every later step runs against — a byte change becomes a red test, not
-a silent fork. (Today the backward-compat coverage is implicit in `ClusterTest`/
-`MetamorphicTest`; make it explicit and exhaustive first.)
+`node/GoldenStateRootTest` builds deterministic ledgers (fixed seeds → fixed ids) and
+asserts `stateRoot()` + `accountsMerkleRoot()` against pinned hex constants for
+**v1/v2/full/m1 × {genesis, mutated}** (16 vectors). It's in the CI gate, so any byte
+change in the layout becomes a precise red, not a silent fork — the safety net every
+later step runs against.
 
-## Step 1 — extract the serialization codec
+## Step 1 — extract the serialization codec ✅ DONE (account state root + Merkle)
 
-Move the canonical-string construction (`toCanonical`/`stateRoot` body, `toJson`/
-`fromJson`) into a `StateRootCodec` that owns the byte layout and the `SrVersion`
-tail rules. `Ledger` calls the codec. Nothing else may serialize state. This makes
-the consensus-critical surface a single small, heavily-tested file — the highest-
-value split, and the precondition for the rest (a subsystem can only move once the
-codec, not the subsystem, decides its byte position).
+`StateRootCodec` now owns the `stateRoot()` byte layout and the authenticated account
+Merkle commitment (root/proof/verify). `Ledger` keeps thin delegators so all ~40 call
+sites are unchanged; `Ledger` dropped ~156 lines. Verified byte-identical by the
+golden vectors + the full suite. **Remaining for this step:** move `toJson`/`fromJson`
+and `shardsRoot`/`shardData` into the codec too (same pattern, same guard).
 
 ## Step 2 — extract leaf subsystems behind interfaces, one at a time
 

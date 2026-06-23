@@ -139,6 +139,11 @@ public class RpcEndpointTest {
                 post("/gossip/slash", new JSONObject().put("from", "SLASH").put("valId", "deadbeefdeadbeef")
                         .put("ha", "aa").put("hb", "bb").put("sa", "00").put("sb", "00").toString()).trim().equals("ok"));
 
+        // ===== malformed input -> 400 (client error), not 500 (server fault) =====
+        ok("/gossip/slash with non-JSON body -> 400", "400".equals(req("POST", "/gossip/slash", "not json at all")[0]));
+        ok("/gossip/tx with non-JSON body -> 400", "400".equals(req("POST", "/gossip/tx", "{broken")[0]));
+        ok("/block with a non-numeric height -> 400", "400".equals(getCode("/block?h=abc")));
+
         // ===== routing / debug-gate =====
         ok("unknown route -> 404", "404".equals(getCode("/no/such/route")));
         ok("/byz/equivocate is 404 unless PC_DEBUG=1", get("/byz/equivocate").contains("no route") || get("/byz/equivocate").contains("equivocated"));

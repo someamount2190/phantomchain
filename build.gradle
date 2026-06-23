@@ -57,6 +57,22 @@ def deterministicTests = [
 // separate task so a CI port/timing hiccup doesn't mask a core-logic regression.
 def integrationTests = ['MtlsTest', 'ReadPeerSplitTest', 'EclipseTest', 'RpcEndpointTest']
 
+// Out-of-gate suites — deliberately NOT in the CI gate, documented here so the coverage
+// boundary is explicit rather than invisible. Two kinds:
+//
+//  1. Live-node operator probes. These hit an already-running node over mTLS and wait on
+//     real block cadence (multi-second naps), so they need a booted cluster + certs and
+//     would be slow/flaky in a headless gate. Run manually against a node you control:
+//       ./gradlew probe -Psuite=BridgeTest   -Pargs="127.0.0.1:9091 data/certs"
+//       ./gradlew probe -Psuite=ShardTest    -Pargs="127.0.0.1:9091 127.0.0.1:9092 data/certs <acctId>"
+//     arg contracts: Bridge/Estate/Identity = "<nodeAddr> <certDir>";
+//                    Shard = "<node1Addr> <node2Addr> <certDir> <acctId>".
+def manualProbes = ['BridgeTest', 'EstateTest', 'IdentityTest', 'ShardTest']
+//  2. Long-running economic / large-scale simulations. Self-contained (no live node) but
+//     heavy — EconStabilitySim/LongRunEconSim simulate ~months of blocks; LargeScaleSim
+//     boots 100–500-validator sets. Run on demand: ./gradlew probe -Psuite=LargeScaleSim
+def simSuites = ['EconStabilitySim', 'LongRunEconSim', 'LargeScaleSim']
+
 // Tests that boot a NetNode live in the com.phantomchain.net package; the rest are engine
 // tests in com.phantomchain.debug. (Net can only see the engine's public Ledger facade.)
 def netTests = ['AdvAdversaryTest', 'EclipseTest', 'FuzzTest', 'LargeScaleSim', 'MtlsTest', 'ReadPeerSplitTest', 'PartitionTest', 'RpcEndpointTest'] as Set
@@ -112,5 +128,58 @@ tasks.register('runIntegrationTests') {
     }
 }
 
+// Run a single out-of-gate suite by name with args:  ./gradlew probe -Psuite=ShardTest -Pargs="a b c d"
+tasks.register('probe') {
+    group = 'verification'
+    description = 'Run one out-of-gate suite (manual probe or sim) by -Psuite=Name [-Pargs="..."].'
+    dependsOn 'testClasses'
+    doLast {
+        def t = project.findProperty('suite')
+        if (t == null) throw new GradleException("usage: ./gradlew probe -Psuite=<Name> [-Pargs=\"...\"]")
+        def pkg = netTests.contains(t) ? 'com.phantomchain.net' : 'com.phantomchain.debug'
+        javaexec {
+            classpath = sourceSets.test.runtimeClasspath
+            mainClass = "${pkg}.${t}"
+            if (project.hasProperty('args')) args(project.property('args').toString().split(' '))
+            environment 'PC_OP_TOKEN', System.getenv('PC_OP_TOKEN') ?: 'ci-test-token'
+        }
+    }
+}
+
+// Coverage guard: every *Test/*Sim on disk must belong to exactly one registry above, so a
+// newly added suite can never silently fall outside both the gate and the documented manual
+// set. Wired into 'check', so CI fails on an unclassified suite.
+tasks.register('auditTestCoverage') {
+    group = 'verification'
+    description = 'Fail if any test/sim suite on disk is not classified into a known registry.'
+    doLast {
+        def known = (deterministicTests + integrationTests + manualProbes + simSuites) as Set
+        def onDisk = fileTree('src/test/java').matching { include '**/*Test.java'; include '**/*Sim.java' }
+                .collect { it.name.replaceAll(/\.java$/, '') }
+                .findAll { it != 'TestKit' } as Set
+        def unclassified = (onDisk - known).toSorted()
+        def dangling = (known - onDisk).toSorted()
+        if (!dangling.isEmpty()) throw new GradleException("Registry names a suite with no file on disk: ${dangling}")
+        if (!unclassified.isEmpty()) throw new GradleException("Unclassified test suites (add to a registry in build.gradle): ${unclassified}")
+        println "Test coverage audit: ${onDisk.size()} suites, all classified " +
+                "(${deterministicTests.size()} gated + ${integrationTests.size()} integration + ${manualProbes.size()} probes + ${simSuites.size()} sims)."
+    }
+}
+
+// Android-engine split guard. The Android app (src/android) adds ONLY src/core as a srcDir,
+// so src/core must compile against the external deps alone — never referencing the net layer
+// or the JVM-only debug classes that live in src/main. Compiling it in isolation here makes
+// that invariant real: if the engine ever reaches into src/main, this fails at build time
+// instead of silently breaking the APK. (compileClasspath = declared deps only, not main's output.)
+tasks.register('compileCoreIsolated', JavaCompile) {
+    group = 'verification'
+    description = 'Compile the Android-shared engine (src/core) alone — fails if it depends on src/main.'
+    source = fileTree('src/core/java')
+    classpath = configurations.compileClasspath
+    destinationDirectory = layout.buildDirectory.dir('classes/core-isolated')
+    javaCompiler = javaToolchains.compilerFor { languageVersion = JavaLanguageVersion.of(17) }
+    options.release = 17
+}
+
 tasks.named('test') { enabled = false }            // no JUnit suite
-tasks.named('check') { dependsOn 'runTests' }
+tasks.named('check') { dependsOn 'runTests', 'auditTestCoverage', 'compileCoreIsolated' }

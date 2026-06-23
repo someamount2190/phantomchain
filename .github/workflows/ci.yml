@@ -21,6 +21,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Compile (node + core)
         run: ./gradlew compileJava --no-daemon --console=plain
+      - name: Android-engine split guard (src/core compiles alone)
+        run: ./gradlew compileCoreIsolated --no-daemon --console=plain
+      - name: Test-coverage audit (every suite classified)
+        run: ./gradlew auditTestCoverage --no-daemon --console=plain
       - name: Deterministic JVM test suite (the gate)
         run: ./gradlew runTests --no-daemon --console=plain
 

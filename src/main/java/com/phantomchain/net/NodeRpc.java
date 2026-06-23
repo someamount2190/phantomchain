@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 import org.bouncycastle.pqc.crypto.mldsa.MLDSAPublicKeyParameters;
 
@@ -315,7 +316,13 @@ final class NodeRpc {
                 }
                 default: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "no route\n");
             }
+        } catch (JSONException | IllegalArgumentException e) {
+            // Malformed request: bad JSON body, missing/unparseable params (NumberFormatException is an
+            // IllegalArgumentException). This is the caller's fault, not ours -> 400, and no stack trace
+            // (an unauthenticated peer must not be able to flood our logs by spamming garbage bodies).
+            return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "bad request: " + e.getMessage() + "\n");
         } catch (Exception e) {
+            // Genuine server-side fault: keep the stack trace, it's a real bug to investigate.
             e.printStackTrace();
             return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "ERR " + e.getClass().getSimpleName() + ": " + e.getMessage() + "\n");
         }

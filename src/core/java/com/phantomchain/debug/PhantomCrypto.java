@@ -169,4 +169,16 @@ public class PhantomCrypto {
         for (int i = 0; i < n; i++) b[i] = (byte) Integer.parseInt(s.substring(2 * i, 2 * i + 2), 16);
         return b;
     }
+
+    /** ML-DSA-65 public-key (de)serialization — the single home for the key<->hex conversions that were
+     *  inlined across the tx builders, the ledger, and the node. */
+    public static String pubHex(MLDSAPrivateKeyParameters key) { return hex(key.getPublicKeyParameters().getEncoded()); }
+    public static MLDSAPublicKeyParameters pubKey(String hex) { return new MLDSAPublicKeyParameters(MLDSAParameters.ml_dsa_65, unhex(hex)); }
+
+    /** Read a stream fully into a UTF-8 string (the HTTP-response reader shared by the peer client and wallet). */
+    public static String readAll(java.io.InputStream is) throws Exception {
+        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream(); byte[] buf = new byte[4096]; int n;
+        while ((n = is.read(buf)) > 0) bo.write(buf, 0, n); is.close();
+        return new String(bo.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+    }
 }

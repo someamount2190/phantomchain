@@ -173,7 +173,7 @@ public class Ledger {
         long nonce = nonceOf(from);
         byte[] sig = PhantomCrypto.sign(fromKey, PhantomCrypto.utf8(txCanon(chainId, from, to, amount, 0, nonce)));
         return new JSONObject().put("from", from).put("to", to).put("amount", amount).put("cid", chainId)
-                .put("fee", 0).put("nonce", nonce).put("pub", PhantomCrypto.hex(fromKey.getPublicKeyParameters().getEncoded()))
+                .put("fee", 0).put("nonce", nonce).put("pub", PhantomCrypto.pubHex(fromKey))
                 .put("sig", PhantomCrypto.hex(sig));
     }
 
@@ -280,7 +280,7 @@ public class Ledger {
         long nonce = proj(from, mempoolProjection())[1];
         byte[] sig = PhantomCrypto.sign(key, PhantomCrypto.utf8(txCanon(chainId, from, to, amount, fee, nonce)));
         return new JSONObject().put("from", from).put("to", to).put("amount", amount).put("cid", chainId)
-                .put("fee", fee).put("nonce", nonce).put("pub", PhantomCrypto.hex(key.getPublicKeyParameters().getEncoded()))
+                .put("fee", fee).put("nonce", nonce).put("pub", PhantomCrypto.pubHex(key))
                 .put("sig", PhantomCrypto.hex(sig));
     }
 
@@ -591,7 +591,7 @@ public class Ledger {
 
     // ===== identity != key (registry): id = sha3(root); root authorizes rotations, device keys spend =====
     public static String idOf(String rootPubHex) { return PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.unhex(rootPubHex))); }
-    static MLDSAPublicKeyParameters pk(String hex) { return new MLDSAPublicKeyParameters(MLDSAParameters.ml_dsa_65, PhantomCrypto.unhex(hex)); }
+    static MLDSAPublicKeyParameters pk(String hex) { return PhantomCrypto.pubKey(hex); }
 
     /** Authorize a signer: a registered identity must sign with one of its CURRENT device keys; an
      *  unregistered account stays self-sovereign (validator key or sha3(pub)==id). */

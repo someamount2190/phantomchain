@@ -28,9 +28,9 @@ public class Keys {
     }
 
     public static String pubHex(MLDSAPrivateKeyParameters key) {
-        return PhantomCrypto.hex(key.getPublicKeyParameters().getEncoded());
+        return PhantomCrypto.pubHex(key);
     }
     public static String idOf(MLDSAPrivateKeyParameters key) {
-        return PhantomCrypto.hex(PhantomCrypto.sha3_256(key.getPublicKeyParameters().getEncoded()));
+        return Ledger.idOf(PhantomCrypto.pubHex(key));
     }
 }

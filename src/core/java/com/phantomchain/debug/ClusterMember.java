@@ -25,7 +25,7 @@ public class ClusterMember extends NanoHTTPD {
     ClusterMember(int port, byte[] seed) {
         super(port);
         this.key = PhantomCrypto.deviceKeyFromSeed(seed);
-        this.pub = PhantomCrypto.hex(key.getPublicKeyParameters().getEncoded());
+        this.pub = PhantomCrypto.pubHex(key);
         this.id = PhantomCrypto.hex(PhantomCrypto.sha3_256(key.getPublicKeyParameters().getEncoded()));
     }
 

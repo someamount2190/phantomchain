@@ -63,7 +63,6 @@ public class NetNode extends NanoHTTPD {
     final Set<String> processedVotes = Collections.synchronizedSet(new HashSet<String>());
     volatile boolean running = true;
     volatile boolean byzantine = false;
-    byte[] beaconSeed;                 // per-node RANDAO secret seed (derived deterministically from the node key)
     volatile long beaconCtr = 0;       // index of our current outstanding reveal (persisted with votes)
     static final String OP_TOKEN = System.getenv("PC_OP_TOKEN") == null ? "" : System.getenv("PC_OP_TOKEN");  // operator RPC token
     static final boolean DEBUG_ENDPOINTS = "1".equals(System.getenv("PC_DEBUG"));                              // gate /byz/equivocate
@@ -82,7 +81,7 @@ public class NetNode extends NanoHTTPD {
         if (GEN != null) return;
         GEN = gen;
         for (Genesis.Validator v : gen.validators) {   // process-global identity material (append-only, same for every node)
-            PUB_BY_ID.put(v.id, new MLDSAPublicKeyParameters(MLDSAParameters.ml_dsa_65, PhantomCrypto.unhex(v.pubkeyHex)));
+            PUB_BY_ID.put(v.id, PhantomCrypto.pubKey(v.pubkeyHex));
             GEN_VALPUBS.put(v.id, v.pubkeyHex);
         }
     }
@@ -94,7 +93,7 @@ public class NetNode extends NanoHTTPD {
         this.VAL_IDS = new String[N];
         for (int i = 0; i < N; i++) this.VAL_IDS[i] = gen.validators.get(i).id;
         this.key = key;
-        this.id = PhantomCrypto.hex(PhantomCrypto.sha3_256(key.getPublicKeyParameters().getEncoded()));
+        this.id = Keys.idOf(key);
         this.index = gen.indexOfId(this.id);   // -1 if not a genesis validator -> runs as observer until it joins
         this.certIndex = cfg.certIndex >= 0 ? cfg.certIndex : index;
         this.selfAddr = cfg.selfAddr;
@@ -115,7 +114,7 @@ public class NetNode extends NanoHTTPD {
             VAL_IDS = ledger.validators.toArray(new String[0]);
             for (Map.Entry<String, String> e : ledger.valPubs.entrySet())
                 if (!"CLUSTER".equals(e.getValue()))   // a cluster has no single key; its consensus sig is an M-of-N member bundle (verifyClusterVote)
-                    PUB_BY_ID.computeIfAbsent(e.getKey(), kk -> new MLDSAPublicKeyParameters(MLDSAParameters.ml_dsa_65, PhantomCrypto.unhex(e.getValue())));
+                    PUB_BY_ID.computeIfAbsent(e.getKey(), kk -> PhantomCrypto.pubKey(e.getValue()));
         }
         if (index < 0) {
             int myIdx = ledger.validators.indexOf(id);
@@ -156,7 +155,6 @@ public class NetNode extends NanoHTTPD {
         syncValidatorSet();   // pick up any validators joined since genesis (and our own index if we joined)
         // commit-reveal beacon: secret seed is DERIVED from our ML-DSA key (so commit0 is publishable at
         // keygen and bound at genesis/VALJOIN — no unconstrained first reveal), then resync our counter.
-        beaconSeed = Ledger.beaconSeedFor(key.getEncoded());
         String onchainCommit = ledger.commits.get(id);
         if (onchainCommit != null) for (long c = Math.max(0, beaconCtr - 3); c <= beaconCtr + 3; c++)
             if (PhantomCrypto.hex(PhantomCrypto.sha3_256(beaconSecret(c))).equals(onchainCommit)) { beaconCtr = c; break; }
@@ -272,7 +270,7 @@ public class NetNode extends NanoHTTPD {
     final NodeRpc rpc = new NodeRpc(this);   // HTTP API surface — routing + endpoint handlers (NodeRpc)
     String announceSig() { return PhantomCrypto.hex(PhantomCrypto.sign(key, PhantomCrypto.utf8("announce|" + GEN.chainId + "|" + index + "|" + selfAddr))); }
     byte[] voteSig(String hash) { return PhantomCrypto.sign(key, PhantomCrypto.utf8(hash)); }
-    byte[] beaconSecret(long c) { return PhantomCrypto.hkdf(beaconSeed, null, PhantomCrypto.utf8("pcbeacon" + c), 32); }
+    byte[] beaconSecret(long c) { return Ledger.beaconSecretFor(key.getEncoded(), c); }   // single source: BeaconLogic
     String beaconReveal() { return PhantomCrypto.hex(beaconSecret(beaconCtr)); }
     String beaconCommit() { return PhantomCrypto.hex(PhantomCrypto.sha3_256(beaconSecret(beaconCtr + 1))); }
 

@@ -1,7 +1,7 @@
 package com.phantomchain.net;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
+import com.phantomchain.debug.PhantomCrypto;
+
 import java.nio.charset.StandardCharsets;
 
 import javax.net.ssl.HttpsURLConnection;
@@ -32,7 +32,7 @@ final class NetHttp {
             c.setRequestMethod("POST"); c.setDoOutput(true);
             c.setRequestProperty("Content-Type", "application/json");
             c.getOutputStream().write(body.getBytes(StandardCharsets.UTF_8)); c.getOutputStream().flush();
-            return readAll(c.getInputStream());
+            return PhantomCrypto.readAll(c.getInputStream());
         } catch (Exception e) { return null; } finally { if (c != null) c.disconnect(); }
     }
 
@@ -40,13 +40,8 @@ final class NetHttp {
         HttpsURLConnection c = null;
         try {
             c = conn(tls, addr, path);
-            return readAll(c.getInputStream());
+            return PhantomCrypto.readAll(c.getInputStream());
         } catch (Exception e) { return null; } finally { if (c != null) c.disconnect(); }
     }
 
-    static String readAll(InputStream is) throws Exception {
-        ByteArrayOutputStream bo = new ByteArrayOutputStream(); byte[] buf = new byte[4096]; int n;
-        while ((n = is.read(buf)) > 0) bo.write(buf, 0, n); is.close();
-        return new String(bo.toByteArray(), StandardCharsets.UTF_8);
-    }
 }

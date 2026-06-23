@@ -58,7 +58,7 @@ public class Wallet {
         byte[] sig = PhantomCrypto.sign(key, PhantomCrypto.utf8(Ledger.txCanon(c, id, to, amount, fee, nonce)));
         JSONObject tx = new JSONObject().put("from", id).put("to", to).put("amount", amount).put("cid", c)
                 .put("fee", fee).put("nonce", nonce)
-                .put("pub", PhantomCrypto.hex(key.getPublicKeyParameters().getEncoded()))
+                .put("pub", PhantomCrypto.pubHex(key))
                 .put("sig", PhantomCrypto.hex(sig));
         return post("/gossip/tx", tx.toString()).trim();
     }
@@ -85,20 +85,20 @@ public class Wallet {
     }
     String get(String path) throws Exception {
         HttpsURLConnection c = conn(path);
-        try { return readAll(c.getInputStream()); } finally { c.disconnect(); }
+        try { return PhantomCrypto.readAll(c.getInputStream()); } finally { c.disconnect(); }
     }
     String post(String path, String body) throws Exception {
         HttpsURLConnection c = conn(path);
         c.setRequestMethod("POST"); c.setDoOutput(true);
         c.setRequestProperty("Content-Type", "application/json");
         c.getOutputStream().write(body.getBytes(StandardCharsets.UTF_8));
-        try { return readAll(c.getInputStream()); } finally { c.disconnect(); }
+        try { return PhantomCrypto.readAll(c.getInputStream()); } finally { c.disconnect(); }
     }
     public static String rpcGet(String node, SSLContext tls, String path) throws Exception {
         HttpsURLConnection c = (HttpsURLConnection) new java.net.URL("https://" + node + path).openConnection();
         c.setSSLSocketFactory(tls.getSocketFactory()); c.setHostnameVerifier((h, s) -> true);
         c.setConnectTimeout(8000); c.setReadTimeout(8000);
-        try { return readAll(c.getInputStream()); } finally { c.disconnect(); }
+        try { return PhantomCrypto.readAll(c.getInputStream()); } finally { c.disconnect(); }
     }
     public static String rpcPost(String node, SSLContext tls, String path, String body) throws Exception {
         HttpsURLConnection c = (HttpsURLConnection) new java.net.URL("https://" + node + path).openConnection();
@@ -106,14 +106,9 @@ public class Wallet {
         c.setConnectTimeout(8000); c.setReadTimeout(8000);
         c.setRequestMethod("POST"); c.setDoOutput(true); c.setRequestProperty("Content-Type", "application/json");
         c.getOutputStream().write(body.getBytes(StandardCharsets.UTF_8));
-        try { return readAll(c.getInputStream()); }
-        catch (java.io.IOException e) { java.io.InputStream es = c.getErrorStream(); if (es != null) return "HTTP" + c.getResponseCode() + ":" + readAll(es); throw e; }
+        try { return PhantomCrypto.readAll(c.getInputStream()); }
+        catch (java.io.IOException e) { java.io.InputStream es = c.getErrorStream(); if (es != null) return "HTTP" + c.getResponseCode() + ":" + PhantomCrypto.readAll(es); throw e; }
         finally { c.disconnect(); }
     }
 
-    static String readAll(InputStream is) throws Exception {
-        ByteArrayOutputStream bo = new ByteArrayOutputStream(); byte[] buf = new byte[4096]; int n;
-        while ((n = is.read(buf)) > 0) bo.write(buf, 0, n); is.close();
-        return new String(bo.toByteArray(), StandardCharsets.UTF_8);
-    }
 }

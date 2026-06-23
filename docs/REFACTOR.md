@@ -85,10 +85,19 @@ Leaves done:
 - **GovernanceLogic** — two-phase proposal lifecycle (`finalizeProposals` snapshot-weighted
   tally + turnout quorum + timelocked, bounds-clamped `applyParam`). Guarded by
   `GovernanceAttackTest`.
+- **ValidatorSelection** — §9 weight model (√stake + identity + geo premium + 10% cap),
+  weighted-RANDAO `proposerFor`, beacon-sortitioned `committeeFor`/`committeeQuorum`.
+  Guarded by `CommitteeTest` (n=1000 safety sim) + `ClusterTest`.
+- **EconomicsLogic** — emission (`blockRewardAt`), epoch reward split (`maybeEpochReward`
+  + `creditEarner`), supply accounting. Guarded by the econ sims + `MetamorphicTest` (MR3).
+- **ClusterLogic** — cluster formation / disband / M-of-N member-signature bundle
+  (`verifyClusterForm` / `applyClusterForm` / `verifyClusterDisband` / `verifyClusterVote`).
+  Guarded by `ClusterTest` / `ClusterGovTest`.
 
 State stays in `Ledger`; it's now a thin coordinator over typed subsystems. `Ledger`:
-**1640 → 1183 lines (−457)**, into 7 single-responsibility files (`SrVersion`,
-`StateRootCodec`, `Bridge/Estate/Recovery/Beacon/GovernanceLogic`). The `commitBlock`
+**1640 → 941 lines (−43%)**, into 11 single-responsibility files (`SrVersion`,
+`StateRootCodec`, `Bridge/Estate/Recovery/Beacon/Governance/Economics/ClusterLogic`,
+`ValidatorSelection`). The `commitBlock`
 tx-dispatch and per-case state recording remain the single state-transition entry point
 by design.
 

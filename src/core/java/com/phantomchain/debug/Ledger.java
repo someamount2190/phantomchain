@@ -658,33 +658,8 @@ public class Ledger {
     // ===== cluster mining (spec §9): M-of-N member devices act as one validator =====
     boolean isCluster(String id) { return clusters.containsKey(id); }
 
-    static String clusterFormCanon(String cid, String clusterId, JSONArray members, int threshold) {
-        return "clusterform|" + cid + "|" + clusterId + "|" + members.toString() + "|" + threshold;
-    }
-
-    /** A cluster forms by: bonding the cluster account >= minValidatorStake, then an initiating member
-     *  signs the {members, threshold} set. The cluster then joins the validator set as a single validator. */
-    boolean verifyClusterForm(JSONObject tx) throws Exception {
-        if (!chainId.equals(tx.optString("cid", ""))) return false;
-        String clusterId = tx.getString("clusterId");
-        if (validators.contains(clusterId) || clusters.containsKey(clusterId)) return false;     // no re-form / id clash
-        JSONArray members = tx.getJSONArray("members"); JSONObject mpubs = tx.getJSONObject("memberPubs");
-        int threshold = tx.getInt("threshold");
-        if (members.length() == 0 || threshold < 1 || threshold > members.length()) return false;
-        java.util.Set<String> uniq = new java.util.HashSet<>();
-        for (int i = 0; i < members.length(); i++) {                                              // members distinct + pubkey binds to id
-            String mid = members.getString(i); if (!uniq.add(mid)) return false;
-            String mp = mpubs.optString(mid, ""); if (mp.isEmpty() || !idOf(mp).equals(mid)) return false;
-        }
-        long clusterStake = 0; for (int i = 0; i < members.length(); i++) clusterStake += stake.getOrDefault(members.getString(i), 0L);
-        if (clusterStake < minValidatorStake) return false;                                        // pooled member stake meets the validator floor (§9.4)
-        if (tx.optString("beaconCommit0", "").length() != 64) return false;                       // binds the cluster's first beacon reveal
-        String initPub = tx.getString("initPub"); String initId = idOf(initPub);
-        if (!uniq.contains(initId)) return false;                                                  // initiator must be a member
-        return PhantomCrypto.verify(pk(initPub),
-                PhantomCrypto.utf8(clusterFormCanon(chainId, clusterId, members, threshold) + "|" + tx.getString("beaconCommit0")),
-                PhantomCrypto.unhex(tx.getString("sig")));
-    }
+    static String clusterFormCanon(String cid, String clusterId, JSONArray members, int threshold) { return ClusterLogic.clusterFormCanon(cid, clusterId, members, threshold); }
+    boolean verifyClusterForm(JSONObject tx) throws Exception { return ClusterLogic.verifyClusterForm(this, tx); }
 
     JSONObject buildClusterFormTx(String clusterId, java.util.List<String> members, Map<String, String> memberPubs,
                                   int threshold, MLDSAPrivateKeyParameters initKey, String beaconCommit0) throws Exception {
@@ -697,32 +672,11 @@ public class Ledger {
                 .put("initPub", initPub).put("beaconCommit0", beaconCommit0).put("sig", PhantomCrypto.hex(sig));
     }
 
-    /** Apply a CLUSTERFORM to state (idempotent; the cluster joins the validator set as one validator).
-     *  Shared by commitBlock and tests. Returns true iff the cluster was registered. */
-    boolean applyClusterForm(JSONObject tx) throws Exception {
-        if (!verifyClusterForm(tx)) return false;
-        String clusterId = tx.getString("clusterId"); JSONArray cm = tx.getJSONArray("members");
-        if (validators.contains(clusterId) || clusters.containsKey(clusterId)) return false;
-        long clusterStake = 0; for (int mi = 0; mi < cm.length(); mi++) clusterStake += stake.getOrDefault(cm.getString(mi), 0L);
-        clusters.put(clusterId, new JSONObject().put("members", cm)
-                .put("memberPubs", tx.getJSONObject("memberPubs")).put("threshold", tx.getInt("threshold")));
-        validators.add(clusterId); valPubs.put(clusterId, "CLUSTER");   // marker: consensus sig is an M-of-N member bundle, not one key
-        stake.put(clusterId, clusterStake);                            // §9.4 cluster_total_stake = pooled member stake
-        identity.put(clusterId, (long) cm.length());                   // §9.4 cluster identity weight = enrolled members
-        commits.put(clusterId, tx.getString("beaconCommit0"));
-        return true;
-    }
+    /** Apply a CLUSTERFORM to state (idempotent; the cluster joins the validator set as one validator). */
+    boolean applyClusterForm(JSONObject tx) throws Exception { return ClusterLogic.applyClusterForm(this, tx); }
 
-    static String clusterDisbandCanon(String cid, String clusterId) { return "clusterdisband|" + cid + "|" + clusterId; }
-
-    /** Collapse (§9.7) is authorized by the cluster's OWN members: >= threshold distinct member signatures
-     *  over the disband string. Idempotent; only a registered, not-already-collapsed cluster can disband. */
-    boolean verifyClusterDisband(JSONObject tx) throws Exception {
-        if (!chainId.equals(tx.optString("cid", ""))) return false;
-        String clusterId = tx.getString("clusterId");
-        JSONObject c = clusters.get(clusterId); if (c == null || collapsed.contains(clusterId)) return false;
-        return verifyClusterVote(clusterId, clusterDisbandCanon(chainId, clusterId), tx.optJSONArray("approvals"));
-    }
+    static String clusterDisbandCanon(String cid, String clusterId) { return ClusterLogic.clusterDisbandCanon(cid, clusterId); }
+    boolean verifyClusterDisband(JSONObject tx) throws Exception { return ClusterLogic.verifyClusterDisband(this, tx); }
 
     JSONObject buildClusterDisbandTx(String clusterId, java.util.List<MLDSAPrivateKeyParameters> memberKeys) throws Exception {
         String canon = clusterDisbandCanon(chainId, clusterId);
@@ -733,22 +687,8 @@ public class Ledger {
         return new JSONObject().put("from", "CLUSTERDISBAND").put("clusterId", clusterId).put("cid", chainId).put("approvals", approvals);
     }
 
-    /** A cluster's consensus signature on a block is a bundle [{m:memberId, sig}]; valid iff >= threshold
-     *  DISTINCT member keys signed the block hash. This is the M-of-N stand-in for a threshold signature. */
-    boolean verifyClusterVote(String clusterId, String hash, JSONArray bundle) throws Exception {
-        JSONObject c = clusters.get(clusterId); if (c == null || bundle == null) return false;
-        JSONObject mpubs = c.getJSONObject("memberPubs"); int threshold = c.getInt("threshold");
-        java.util.Set<String> members = new java.util.HashSet<>();
-        JSONArray ms = c.getJSONArray("members"); for (int i = 0; i < ms.length(); i++) members.add(ms.getString(i));
-        java.util.Set<String> seen = new java.util.HashSet<>(); int ok = 0;
-        for (int i = 0; i < bundle.length(); i++) {
-            JSONObject e = bundle.getJSONObject(i); String mid = e.optString("m", "");
-            if (!members.contains(mid) || !seen.add(mid)) continue;                               // unknown or double-counted member
-            String mp = mpubs.optString(mid, ""); if (mp.isEmpty()) continue;
-            if (PhantomCrypto.verify(pk(mp), PhantomCrypto.utf8(hash), PhantomCrypto.unhex(e.getString("sig")))) ok++;
-        }
-        return ok >= threshold;
-    }
+    /** A cluster's consensus signature on a block is a bundle of >= threshold distinct member sigs (M-of-N). */
+    boolean verifyClusterVote(String clusterId, String hash, JSONArray bundle) throws Exception { return ClusterLogic.verifyClusterVote(this, clusterId, hash, bundle); }
 
     /** Credit an epoch-reward share to a validator. For a cluster the share is split DIRECTLY and equally
      *  among its member identities (spec §9.6 — no operator intermediary); remainder to the first members. */

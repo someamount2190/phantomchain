@@ -1,14 +1,24 @@
 # Design: View-Change Certificates (closes [OPEN-BFT-01], the residual #1 wedge)
 
-**Status:** design (not yet implemented). The *common* wedge — proposer crash with a converged mempool —
-is already fixed by deterministic proposals (`Ledger.nextBlockTs`, see `VoteLockWedgeTest`). This document
-specifies the protocol that closes the **residual**: a divergent mempool or a Byzantine proposer can still
-produce a different-hash later-view block that per-height-locked validators reject, wedging the height.
+**Status:** target semantics — **specified, intentionally NOT hand-rolled.** The *common* wedge (proposer
+crash with a converged mempool) is already fixed by deterministic proposals (`Ledger.nextBlockTs`, see
+`VoteLockWedgeTest`) — a small, fully-verifiable change. The **residual** (divergent mempool / Byzantine
+proposer can still produce a different-hash later-view block that per-height-locked validators reject) needs
+a full view-change protocol.
 
-This is a **safety-critical** change. The methodology below (spec → implement → adversarial tests → review)
-is deliberate: a wrong view-change protocol forks the chain, which is unrecoverable and strictly worse than
-the liveness wedge it fixes. Do **not** land a partial implementation — releasing the vote-lock without the
-full certificate breaks safety.
+**Implementation stance (project philosophy: no hand-rolled safety-critical code).** PhantomChain takes its
+safety-critical primitives from vetted libraries (BouncyCastle for all crypto; threshold-ML-DSA and PQ-VRF
+are documented as honest gaps awaiting production libraries, *not* rolled in-house). A correct BFT
+view-change is exactly that class of primitive — subtle, fork-on-mistake, and impossible to verify
+exhaustively by ad-hoc tests. So this is **not** a hand-rolling guide. The complete fix should be either:
+- a **vetted/audited BFT engine** (e.g. BFT-SMaRt — academically reviewed, Java) adopted under the
+  validator API, or a CometBFT-style engine via a stable interface; or
+- a **formally-verified** view-change implementation.
+
+This document is the **required behaviour** — the safety and liveness properties any such implementation
+must satisfy, and the adversarial scenarios that gate it — so the chosen library/implementation can be held
+to a precise contract. It is the same posture FRONTIER takes for threshold-ML-DSA: *interface ready, swap in
+a proven implementation; do not roll it.*
 
 ## The problem, precisely
 
@@ -91,8 +101,17 @@ stuck block (which now reaches `Q`) or, if nothing was voted, proposes fresh.
 6. **Restart:** a validator that sent `VIEW-CHANGE(h, v)` does not contribute to a different VCC at `h`
    after a crash-restart.
 
-## Scope
-New: `VIEW-CHANGE` message + `/viewchange` endpoint, VCC assembly/verification, the selection rule, vote
-format migration (`view`), timer-driven broadcast, persistence. Touches `Consensus`, `NodeRpc`, `NetNode`,
-and the `votes-<i>.json` format. Estimate: a focused multi-step effort with the adversarial suite above as
-the gate — explicitly **not** a single patch.
+## Adoption path (not a hand-roll)
+The contract above is what a chosen implementation must satisfy; it is **not** a license to roll the protocol
+in-house. Realistic options, in order of preference:
+1. **Adopt a vetted BFT engine** (BFT-SMaRt or equivalent) behind a thin adapter: PhantomChain's blocks/QC
+   become that engine's value/decision, and `votedAt`/QC give way to the engine's lock/commit. The adapter
+   maps the safety/liveness contract above onto the engine's guarantees.
+2. **Formally-verified view-change** (e.g. a TLA+/Ivy-checked spec compiled or carefully transcribed) if a
+   library swap is too invasive for the current single-phase QC.
+3. **Stay on the current simple consensus** with the deterministic-proposal mitigation, and keep this as a
+   documented honest gap (the present state) — appropriate while clusters are small and mempools converge.
+
+Any of these is a deliberate, reviewed change; the surfaces it would touch (`Consensus`, `NodeRpc`,
+`NetNode`, the `votes-<i>.json` format) are listed only so an integrator knows the blast radius. The
+adversarial test plan above is the acceptance gate regardless of which option is chosen.

@@ -4,6 +4,7 @@ import static com.phantomchain.debug.TestKit.*;
 
 import org.bouncycastle.pqc.crypto.mldsa.MLDSAPrivateKeyParameters;
 import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -14,23 +15,25 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Characterization of KNOWN ISSUE #1 — the view-change vote-lock liveness wedge.
+ * Issue #1 — the view-change vote-lock liveness wedge, and the partial fix.
  *
- * A validator's vote is locked PER HEIGHT, not per (height, view): NodeRpc's /vote handler and
- * Consensus.round both reject any block whose hash differs from the one already voted at that height
- * ("reject: already voted at height h"), and {@code votedAt} is never released before the height commits.
- * Because a block's hash commits to the proposer's WALL-CLOCK ts, a later-view proposal at the same height
- * has a different hash — so every validator that voted the view-0 block rejects the view-1 block forever.
+ * A validator's vote locks PER HEIGHT (not per (height,view)) and is never released: NodeRpc /vote and
+ * Consensus.round reject any height-h block whose hash differs from the one already voted. Previously a
+ * later-view proposal ALWAYS differed (the block hash committed to the proposer's WALL-CLOCK ts), so after
+ * a sub-quorum partial vote that then stalled, every later view was rejected -> the height wedged forever.
  *
- * Consequence: if a view-0 block gathers a SUB-QUORUM partial vote and then stalls (proposer crash /
- * partition), no later view can ever finalize that height — the remaining (unlocked) validators are too
- * few to reach quorum. This holds for any committee where quorum > (N+1)/2, which the BFT quorum
- * c-(c-1)/3 (~2/3) always satisfies; N=4 (quorum 3) is the minimal case shown here.
+ * FIX (this change): {@link Ledger#nextBlockTs()} makes the proposal timestamp deterministic (prev ts + 1),
+ * and Consensus.round uses it. ts only has to be monotonic — nothing reads it as wall-clock — so a
+ * view-change re-proposal of the SAME mempool is now byte-identical and hashes the same. A validator locked
+ * on the view-0 block re-votes the identical view-1 block, so the common wedge (proposer crash with a
+ * converged mempool) finalizes instead of wedging. Safety is untouched: validators still sign at most one
+ * CONTENT per height, so two conflicting blocks can never both reach quorum.
  *
- * This test PINS the current (wedging) behavior. The correct fix is PBFT-style view-change certificates
- * (FRONTIER.md's "real BFT" step); when that lands, the wedge assertion below should flip to "finalizes".
- * A safety note for any fixer: naively releasing the per-height lock risks a FORK (the view-0 block could
- * have committed on another partition) — the lock release must be justified by a view-change certificate.
+ * RESIDUAL (still open, [OPEN-BFT-01]): if proposers genuinely disagree on content (divergent mempool, or a
+ * Byzantine proposer), the blocks differ and the locked voters still reject the later view -> the height can
+ * still wedge. Safely closing that needs PBFT-style view-change certificates (the new proposer re-proposes
+ * the highest-voted block, justified by a quorum of view-change messages); a naive lock-release would FORK
+ * (the view-0 block could have committed on another partition). This test pins both halves.
  */
 public class VoteLockWedgeTest {
 
@@ -53,63 +56,59 @@ public class VoteLockWedgeTest {
         return L;
     }
 
-    /** Block hash for an empty-tx block — the exact preimage sealBlock/commitBlock use (chainId|h|prev|txs|ts). */
-    static String blockHash(Ledger L, int height, String prevHash, long ts) throws Exception {
-        String preimage = L.chainId() + "|" + height + "|" + prevHash + "|" + new JSONArray() + "|" + ts;
+    /** The exact preimage sealBlock/commitBlock/buildProposal use: chainId|height|prevHash|txs|ts. */
+    static String blockHash(Ledger L, int height, String prevHash, JSONArray txs, long ts) throws Exception {
+        String preimage = L.chainId() + "|" + height + "|" + prevHash + "|" + txs + "|" + ts;
         return PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8(preimage)));
     }
 
+    /** A distinct one-tx mempool body (content varies the hash, like a divergent mempool would). */
+    static JSONArray body(String tag) {
+        return new JSONArray().put(new JSONObject().put("tag", tag));
+    }
+
+    /** Count committee members that may vote `hash` under the per-height lock (votedAt null or == hash). */
+    static int canVote(int n, Map<Integer, String> votedAt, String hash) {
+        int c = 0;
+        for (int v = 0; v < n; v++) { String pv = votedAt.get(v); if (pv == null || pv.equals(hash)) c++; }
+        return c;
+    }
+
     public static void main(String[] a) throws Exception {
-        System.out.println("==== VOTE-LOCK WEDGE (known issue #1: per-height vote lock + wall-clock ts) ====\n");
+        System.out.println("==== VOTE-LOCK WEDGE + deterministic-proposal fix (issue #1) ====\n");
 
         Ledger L = genesis(4);
         int N = L.validatorCount();
-        int h = L.chainSize();                 // the height we contend (next, post-genesis)
+        int h = L.chainSize();
         String prev = L.lastHash();
-        int quorum = L.committeeQuorum(h);     // 3 for N=4
-        System.out.println("[N=" + N + ", quorum(c-(c-1)/3)=" + quorum + ", contending height=" + h + "]\n");
+        int quorum = L.committeeQuorum(h);
+        long ts = L.nextBlockTs();             // deterministic — Consensus.round uses this for ANY view at h
+        System.out.println("[N=" + N + ", quorum=" + quorum + ", height=" + h + ", deterministic ts=" + ts + "]\n");
 
-        // Two competing proposals at the SAME height in different views: different proposers reveal at
-        // different wall-clock times, so the hashes differ.
-        String hash0 = blockHash(L, h, prev, 1_000L);   // view 0
-        String hash1 = blockHash(L, h, prev, 2_000L);   // view 1
-        ok("competing-view blocks at height " + h + " have different hashes (wall-clock ts in the preimage)",
-                !hash0.equals(hash1));
+        JSONArray converged = body("tx-a");    // the mempool both the crashed and the takeover proposer hold
 
-        // The per-height vote lock, applied EXACTLY as NodeRpc /vote (line 283-284) and Consensus.round (54-55):
-        // a validator whose votedAt[h] = X rejects any height-h block whose hash != X.
-        Map<Integer, String> votedAt = new HashMap<>();   // validator index -> hash it voted at height h
+        // ---- FIX: a view-change re-proposal of the SAME mempool, with deterministic ts, is byte-identical ----
+        String view0 = blockHash(L, h, prev, converged, ts);
+        String view1same = blockHash(L, h, prev, converged, ts);   // different proposer/view, same content + ts
+        ok("deterministic ts: a later-view re-proposal of the same mempool has the SAME hash", view0.equals(view1same));
 
-        // View 0 gathers a SUB-QUORUM partial vote, then stalls (proposer crash / partition) -> never commits.
-        int locked = quorum - 1;               // the largest set that does NOT reach quorum
-        for (int v = 0; v < locked; v++) votedAt.put(v, hash0);
-        ok("view-0 block gathered only " + locked + " votes (< quorum " + quorum + ") -> never commits",
-                locked < quorum);
+        // a sub-quorum partial vote at view 0, then the proposer stalls
+        Map<Integer, String> votedAt = new HashMap<>();
+        for (int v = 0; v < quorum - 1; v++) votedAt.put(v, view0);
+        ok("view-0 gathered only " + (quorum - 1) + " votes (< quorum " + quorum + ") -> did not commit", quorum - 1 < quorum);
 
-        // Any later view proposes a different-hash block; the locked validators reject it.
-        int canSignB1 = 0;
-        for (int v = 0; v < N; v++) {
-            String prevVote = votedAt.get(v);
-            if (prevVote == null || prevVote.equals(hash1)) canSignB1++;
-        }
-        ok("view-1 block can gather at most " + canSignB1 + " votes (locked voters reject it) -> below quorum " + quorum,
-                canSignB1 < quorum);
+        int reVote = canVote(N, votedAt, view1same);
+        ok("FIXED (common case): locked voters re-vote the identical re-proposal -> " + reVote + " >= quorum " + quorum
+                + " -> height finalizes (no wedge)", reVote >= quorum);
 
-        ok("WEDGE CONFIRMED: after a sub-quorum partial vote, NO view can finalize height " + h
-                + " (this is known issue #1, pinned until PBFT view-change certificates land)",
-                locked < quorum && canSignB1 < quorum);
+        // ---- RESIDUAL: divergent mempool -> different content -> still wedges (needs view-change certs) ----
+        String view1diff = blockHash(L, h, prev, body("tx-b"), ts);
+        ok("divergent mempool yields a different hash", !view0.equals(view1diff));
 
-        // Control: with NO prior-view vote, the SAME view-1 block reaches quorum -> the wedge is caused by
-        // the per-height lock, not by the quorum threshold itself.
-        votedAt.clear();
-        int freshSigners = 0;
-        for (int v = 0; v < N; v++) {
-            String prevVote = votedAt.get(v);
-            if (prevVote == null || prevVote.equals(hash1)) freshSigners++;
-        }
-        ok("control: with no prior-view votes, the view-1 block reaches quorum (" + freshSigners + " >= " + quorum
-                + ") -> the wedge is the per-height lock, not the protocol quorum",
-                freshSigners >= quorum);
+        int reVoteDiff = canVote(N, votedAt, view1diff);
+        ok("RESIDUAL (divergent mempool / Byzantine): locked voters reject the differing block -> " + reVoteDiff
+                + " < quorum " + quorum + " -> still wedges; needs view-change certificates [OPEN-BFT-01]",
+                reVoteDiff < quorum);
 
         System.out.println("\nVoteLockWedgeTest: " + pass + " passed, " + fail + " failed");
         System.exit(fail == 0 ? 0 : 1);

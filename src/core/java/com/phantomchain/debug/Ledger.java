@@ -580,6 +580,17 @@ public class Ledger implements LedgerView {
     // ===== quorum-certificate support =====
 
     /** Build an unsigned block proposal (hash over header+txs; quorum signs the hash). */
+    /** Deterministic next-block timestamp = prev block ts + 1. ts only has to be monotonic — it enters the
+     *  block hash and the {@code ts >= prevTs} check, but nothing reads it as wall-clock (estate/timelock use
+     *  height). Deriving it from chain state instead of the wall clock makes a proposal CONTENT-deterministic
+     *  across proposers and views: a view-change re-proposal of the same mempool yields the SAME hash, so a
+     *  validator that voted the prior view's block re-votes it rather than wedging the height (issue #1).
+     *  This closes the common crash-with-converged-mempool wedge; the Byzantine / divergent-mempool case still
+     *  needs view-change certificates (see [OPEN-BFT-01] in FRONTIER + VoteLockWedgeTest). */
+    public long nextBlockTs() {
+        return chain.isEmpty() ? 0L : chain.get(chain.size() - 1).getLong("ts") + 1L;
+    }
+
     public JSONObject buildProposal(int proposerIndex, long ts) throws Exception {
         JSONArray txs = new JSONArray();
         for (int ti = 0; ti < mempool.size() && ti < MAX_BLOCK_TXS; ti++) txs.put(mempool.get(ti));

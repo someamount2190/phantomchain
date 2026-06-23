@@ -47,7 +47,7 @@ final class Consensus {
         JSONObject blk; String hash;
         synchronized (n.ledger) {
             if (n.ledger.chainSize() != h || n.ledger.mempoolEmpty()) return;
-            blk = n.ledger.buildProposal(n.index, System.currentTimeMillis());
+            blk = n.ledger.buildProposal(n.index, n.ledger.nextBlockTs());   // deterministic ts: a later-view re-proposal of the same mempool gets the SAME hash, so locked voters re-vote (issue #1 common case)
             blk.put("view", view);
             blk.put("reveal", n.beaconReveal()).put("commit", n.beaconCommit());   // RANDAO: reveal prior secret, commit next
             hash = blk.getString("hash");

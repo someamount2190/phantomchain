@@ -38,7 +38,7 @@ final class Consensus {
             catch (Exception e) { continue; }
             if (n.index >= 0 && proposer == n.index && !n.isSlashed(n.index)) {
                 String k = h + ":" + view;
-                if (!k.equals(lastKey)) { lastKey = k; try { round(h, view); } catch (Exception e) { } }
+                if (!k.equals(lastKey)) { lastKey = k; try { round(h, view); } catch (Exception e) { System.err.println("consensus round h=" + h + " view=" + view + " failed (will retry next tick): " + e); } }
             }
         }
     }

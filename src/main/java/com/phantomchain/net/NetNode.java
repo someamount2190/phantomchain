@@ -228,7 +228,7 @@ public class NetNode extends NanoHTTPD {
             JSONObject o = new JSONObject(new String(Files.readAllBytes(votesFile.toPath()), StandardCharsets.UTF_8));
             for (String k : o.keySet()) { if (k.startsWith("_")) continue; votedAt.put(Integer.parseInt(k), o.getJSONObject(k)); }
             beaconCtr = o.optLong("_beaconCtr", 0);
-        } catch (Exception e) { }
+        } catch (Exception e) { System.err.println("loadVotes: corrupt vote history, starting empty (double-vote protection reset for prior heights): " + e); }
     }
 
     boolean isSlashed(int idx) { return ledger.excluded(VAL_IDS[idx]); }   // excluded = permanent tombstone OR active jail
@@ -261,7 +261,7 @@ public class NetNode extends NanoHTTPD {
                     int mine = myShardIdx();
                     ledger.pruneBlockRS(h, mine, shards[mine]);
                     changed = true;
-                } catch (Exception e) { }
+                } catch (Exception e) { System.err.println("pruneArchived: RS-encode failed for h=" + h + ", retaining full body: " + e); }
             }
         }
         if (changed) save();
@@ -301,7 +301,7 @@ public class NetNode extends NanoHTTPD {
         return ok.size() >= ledger.committeeQuorum(height);
     }
 
-    void mergePeers(String json) { try { JSONObject o = new JSONObject(json); for (String k : o.keySet()) peers.putIfAbsent(Integer.parseInt(k), o.getString(k)); } catch (Exception e) { } }
+    void mergePeers(String json) { try { JSONObject o = new JSONObject(json); for (String k : o.keySet()) peers.putIfAbsent(Integer.parseInt(k), o.getString(k)); } catch (Exception e) { System.err.println("mergePeers: dropping malformed peer map: " + e); } }
 
     /** Open-read-port handler — delegates to the RPC layer's read-allowlist gate. */
     Response serveRead(IHTTPSession s) { return rpc.serveRead(s); }
@@ -324,7 +324,7 @@ public class NetNode extends NanoHTTPD {
             if (pub == null || !PhantomCrypto.verify(pub, PhantomCrypto.utf8(hash), PhantomCrypto.unhex(v.getString("sig")))) return;
             recordVote(v);
             gossipVote(v);                                              // flood (dedup above stops loops)
-        } catch (Exception e) { }
+        } catch (Exception e) { /* untrusted gossip: a malformed/garbage vote must not crash the handler — drop it silently */ }
     }
 
     void recordVote(JSONObject v) {
@@ -340,7 +340,7 @@ public class NetNode extends NanoHTTPD {
                 queueSlash(slash);
                 for (int j = 0; j < N; j++) { if (j == index) continue; String a = peers.get(j); if (a != null) httpPost(a, "/gossip/slash", slash.toString()); }
             }
-        } catch (Exception e) { }
+        } catch (Exception e) { System.err.println("recordVote: failed to record vote / build equivocation evidence (equivocation may go unslashed): " + e); }
     }
 
     void queueSlash(JSONObject slash) {
@@ -351,7 +351,7 @@ public class NetNode extends NanoHTTPD {
                 for (JSONObject t : ledger.mempool) if ("SLASH".equals(t.optString("from")) && valId.equals(t.optString("valId"))) return;
                 if (Ledger.verifySlash(slash, PUB_BY_ID)) ledger.mempool.add(slash);
             }
-        } catch (Exception e) { }
+        } catch (Exception e) { System.err.println("queueSlash: failed to enqueue slash evidence: " + e); }
     }
 
     // ---- discovery ----
@@ -389,7 +389,7 @@ public class NetNode extends NanoHTTPD {
                     }
                     seenBlock.add(blk.getString("hash"));
                 }
-            } catch (Exception e) { }
+            } catch (Exception e) { /* per-peer sync is best-effort: a down/slow/garbage peer must not stall the loop — try the next one (ledger-reject reasons are logged above) */ }
         }
     }
 

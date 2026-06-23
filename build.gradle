@@ -55,11 +55,11 @@ def deterministicTests = [
 
 // Socket-binding integration tests (boot a real NetNode on localhost). Run in a
 // separate task so a CI port/timing hiccup doesn't mask a core-logic regression.
-def integrationTests = ['MtlsTest', 'ReadPeerSplitTest', 'EclipseTest']
+def integrationTests = ['MtlsTest', 'ReadPeerSplitTest', 'EclipseTest', 'RpcEndpointTest']
 
 // Tests that boot a NetNode live in the com.phantomchain.net package; the rest are engine
 // tests in com.phantomchain.debug. (Net can only see the engine's public Ledger facade.)
-def netTests = ['AdvAdversaryTest', 'EclipseTest', 'FuzzTest', 'LargeScaleSim', 'MtlsTest', 'ReadPeerSplitTest', 'PartitionTest'] as Set
+def netTests = ['AdvAdversaryTest', 'EclipseTest', 'FuzzTest', 'LargeScaleSim', 'MtlsTest', 'ReadPeerSplitTest', 'PartitionTest', 'RpcEndpointTest'] as Set
 
 def runSuite = { List names ->
     def failures = []

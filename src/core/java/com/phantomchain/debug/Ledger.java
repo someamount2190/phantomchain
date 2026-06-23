@@ -18,28 +18,28 @@ import org.bouncycastle.pqc.crypto.mldsa.MLDSAPublicKeyParameters;
  * validated transactions, and a hash-linked, device-signed block chain. This is NOT consensus —
  * one node seals every block. It is the smallest honest step from "sign a string" to a real chain.
  */
-public class Ledger {
+public class Ledger implements LedgerView {
 
     static final String ZERO32 = "0000000000000000000000000000000000000000000000000000000000000000";
 
     public static class Account { long balance; long nonce; }
 
     String ownerId;
-    public String chainId = "";   // domain-separation tag; every signed payload (tx, action, block, vote) commits to it
-    public final Map<String, Account> accounts = new HashMap<>();
-    public final List<JSONObject> chain = new ArrayList<>();
-    public final List<JSONObject> mempool = new ArrayList<>();
-    public final java.util.Set<String> slashed = new java.util.HashSet<>();   // validator IDs proven to have double-signed
+    String chainId = "";   // domain-separation tag; every signed payload (tx, action, block, vote) commits to it
+    final Map<String, Account> accounts = new HashMap<>();
+    final List<JSONObject> chain = new ArrayList<>();
+    final List<JSONObject> mempool = new ArrayList<>();
+    final java.util.Set<String> slashed = new java.util.HashSet<>();   // validator IDs proven to have double-signed
     // ---- mining economics (simulation) ----
-    public final Map<String, Long> stake = new HashMap<>();              // id -> bonded stake (PROVABLE: on-chain)
-    public final Map<String, Long> identity = new HashMap<>();           // id -> enrolled-human count (REAL: needs personhood proof)
-    public final java.util.List<String> validators = new ArrayList<>();  // index-ordered ids; APPEND-ONLY so indices/QC stay valid
+    final Map<String, Long> stake = new HashMap<>();              // id -> bonded stake (PROVABLE: on-chain)
+    final Map<String, Long> identity = new HashMap<>();           // id -> enrolled-human count (REAL: needs personhood proof)
+    final java.util.List<String> validators = new ArrayList<>();  // index-ordered ids; APPEND-ONLY so indices/QC stay valid
     // ---- commit-reveal randomness beacon (RANDAO): proposer reveals a value it committed in its prior block ----
-    public String beacon = ZERO32;                                       // accumulated unbiasable-ish randomness
-    public final Map<String, String> commits = new HashMap<>();          // validator id -> its outstanding reveal commitment
-    public final Map<String, String> valPubs = new HashMap<>();          // validator id -> consensus pubkey hex (genesis + joined)
-    public final Map<String, String> regions = new HashMap<>();          // validator id -> region_id (opt-in geo coverage premium)
-    public final Map<String, String> tiers = new HashMap<>();            // validator id -> "light" (absent/"heavy" = full archived-body storage)
+    String beacon = ZERO32;                                       // accumulated unbiasable-ish randomness
+    final Map<String, String> commits = new HashMap<>();          // validator id -> its outstanding reveal commitment
+    final Map<String, String> valPubs = new HashMap<>();          // validator id -> consensus pubkey hex (genesis + joined)
+    final Map<String, String> regions = new HashMap<>();          // validator id -> region_id (opt-in geo coverage premium)
+    final Map<String, String> tiers = new HashMap<>();            // validator id -> "light" (absent/"heavy" = full archived-body storage)
     // ---- cluster mining (spec §9): a cluster of M-of-N enrolled member devices acts as ONE validator;
     // its block "signature" is a bundle of >=threshold member ML-DSA sigs, and epoch rewards are split
     // DIRECTLY to each member identity (no operator intermediary, §9.6). Threshold-Dilithium aggregation
@@ -47,21 +47,21 @@ public class Ledger {
     final Map<String, JSONObject> clusters = new HashMap<>();      // clusterId -> {members:[id...], memberPubs:{id->pubHex}, threshold:M}
     final java.util.Set<String> collapsed = new java.util.HashSet<>();   // clusters disbanded (§9.7): excluded from consensus, members freed to reform
     // ---- cross-chain bridge (on-chain side; the M-of-N custodian HSM service is the explicit OFF-chain trust boundary) ----
-    public final Map<String, String> custodians = new HashMap<>();        // custodian id -> pubkey hex
-    public int bridgeThreshold = 1;                                       // M-of-N custodian attestations required (governable)
+    final Map<String, String> custodians = new HashMap<>();        // custodian id -> pubkey hex
+    int bridgeThreshold = 1;                                       // M-of-N custodian attestations required (governable)
     final java.util.Set<String> bridgeProcessed = new java.util.HashSet<>();   // external tx ids already minted (replay guard)
     public static final String BRIDGE_RESERVE = "BRIDGE_RESERVE";        // reserve account funds inbound releases
-    public final java.util.List<JSONObject> bridgeOuts = new ArrayList<>();           // recent outbound locks (custodian observability)
-    public final Map<String, Map<String, Long>> oracleRates = new HashMap<>();        // pair -> {custodian id -> rate} (median = price)
+    final java.util.List<JSONObject> bridgeOuts = new ArrayList<>();           // recent outbound locks (custodian observability)
+    final Map<String, Map<String, Long>> oracleRates = new HashMap<>();        // pair -> {custodian id -> rate} (median = price)
     int minValidatorStake = 500_000;                              // min bonded stake to join the validator set (governable)
     long identityBond = 0;                                        // stake an identity must lock to be admitted to `verified` (governable; 0 = vouch-only). Sybil-cost: N identities cost N×bond.
-    public int committeeSize = 0;                                        // 0 = full validator set signs (deterministic BFT); >0 = beacon-sortitioned signing committee of this size (probabilistic safety, only meaningful at large N)
+    int committeeSize = 0;                                        // 0 = full validator set signs (deterministic BFT); >0 = beacon-sortitioned signing committee of this size (probabilistic safety, only meaningful at large N)
     // State-root serialization version. Travels WITH the chain (set at genesis, persisted in the snapshot)
     // instead of a JVM launch flag, so a node can never silently fork by being started without the right
     // flag. "v1"/"v2" describe historical (shorter) tails; "full" (default) is the current complete
     // serialization; "m1" additionally binds the authenticated account Merkle root into the state root
     // (opt-in: makes light-client account proofs trustless without changing existing chains).
-    public String srVersion = "full";
+    String srVersion = "full";
     /** Hardened chains make the app-hash (prevStateRoot/prevShardsRoot) MANDATORY in every block, closing
      *  the bypass-by-omission where optString(...,null) silently skips the check when the field is absent.
      *  Gated on srVersion so legacy "full"/"v1"/"v2" chains (incl. the live testnet, which may hold pre-
@@ -72,8 +72,8 @@ public class Ledger {
      *  version gating goes through this (never raw String.equals on srVersion) so the state-root tail
      *  can't silently diverge on a typo'd or missed compare. See {@link SrVersion}. */
     SrVersion srv() { return SrVersion.parse(srVersion); }
-    public long totalMinted = 0;
-    public long burned = 0;                          // total tokens burned (fee burn + slashing) — deflationary sink
+    long totalMinted = 0;
+    long burned = 0;                          // total tokens burned (fee burn + slashing) — deflationary sink
     public static final int EPOCH_LEN = 3;
     static final int PROPOSER_BONUS = 2;      // extra contribution units for proposing
     public static final int  RETAIN_RECENT = 8;      // recent block bodies kept fully; older unassigned bodies pruned
@@ -81,27 +81,27 @@ public class Ledger {
     static final int  MAX_BLOCK_TXS = 1000;   // DoS bound: cap txs packed per block
     static final long MIN_FEE = 1;            // anti-spam: transfers must pay at least this
     // ---- production economics: governable parameters (changeable via on-chain governance) ----
-    public long blockReward = 100;                   // initial per-block emission; halves every halvingBlocks
-    public int  halvingBlocks = 12;                  // emission halving period (blocks)
-    public long maxSupply = 10_000_000L;             // hard emission cap
-    public int  feeBurnBps = 5000;                   // basis points of tx fees burned (remainder -> block proposer)
-    public int  slashBps = 10000;                    // basis points of stake burned on equivocation (10000 = 100%)
-    public int  jailBlocks = 10;                     // jail duration (blocks) after a slash, before unjail is allowed
-    public int  unbondingBlocks = 10;               // lock period (blocks) before unbonded stake becomes liquid
+    long blockReward = 100;                   // initial per-block emission; halves every halvingBlocks
+    int  halvingBlocks = 12;                  // emission halving period (blocks)
+    long maxSupply = 10_000_000L;             // hard emission cap
+    int  feeBurnBps = 5000;                   // basis points of tx fees burned (remainder -> block proposer)
+    int  slashBps = 10000;                    // basis points of stake burned on equivocation (10000 = 100%)
+    int  jailBlocks = 10;                     // jail duration (blocks) after a slash, before unjail is allowed
+    int  unbondingBlocks = 10;               // lock period (blocks) before unbonded stake becomes liquid
     // ---- staking / slashing / governance state ----
     final Map<String, Long> jailed = new HashMap<>();          // id -> height at which unjail becomes allowed
     final List<JSONObject> unbonding = new ArrayList<>();      // [{actor, amount, mature}] pending unbonds
-    public final Map<String, JSONObject> proposals = new HashMap<>(); // propId -> {proposer,param,value,deadline,executed,votes:{voter:choice}}
+    final Map<String, JSONObject> proposals = new HashMap<>(); // propId -> {proposer,param,value,deadline,executed,votes:{voter:choice}}
     // ---- identity != key: durable on-chain identity with rotatable device keys + guardian recovery ----
-    public final Map<String, JSONObject> identities = new HashMap<>(); // identity_id -> {root, devices:[hex], guardians:[id], threshold, rotNonce}
+    final Map<String, JSONObject> identities = new HashMap<>(); // identity_id -> {root, devices:[hex], guardians:[id], threshold, rotNonce}
     // ---- estate / inheritance: only an OUTGOING (fingerprint) action resets the clock ----
     final Map<String, Long> lastActive = new HashMap<>();      // id -> height of last outgoing action
     final Map<String, String> beneficiary = new HashMap<>();   // id -> estate beneficiary id
     long estateInactivity = 10;                                // blocks of inactivity before estate is claimable (governable; small for testnet)
     // ---- personhood (social web-of-trust; PLUGGABLE: admission to 'verified' is by VOUCH tx today,
     //      swap for a biometric-uniqueness proof tx in future without touching consensus) ----
-    public final java.util.Set<String> verified = new java.util.HashSet<>();      // personhood-verified human IDs
-    public final Map<String, java.util.Set<String>> vouches = new HashMap<>();    // candidate -> set of vouchers
+    final java.util.Set<String> verified = new java.util.HashSet<>();      // personhood-verified human IDs
+    final Map<String, java.util.Set<String>> vouches = new HashMap<>();    // candidate -> set of vouchers
     public static final int VOUCH_THRESHOLD = 2;                                  // vouches from verified humans to admit
 
     boolean initialized() { return ownerId != null && !chain.isEmpty(); }
@@ -122,6 +122,67 @@ public class Ledger {
     }
     public long balanceOf(String id) { Account a = accounts.get(id); return a == null ? 0 : a.balance; }
     long nonceOf(String id) { Account a = accounts.get(id); return a == null ? 0 : a.nonce; }
+
+    // ============================================================================================
+    // Read facade for the net layer (com.phantomchain.net). The mutable state below lives in
+    // package-private fields so only the engine (this package) can write it; the net layer reads
+    // exclusively through these accessors and the LedgerView interface. Collection views are
+    // unmodifiable so a read path cannot mutate engine state even by reflection-free accident.
+    // ============================================================================================
+    public int chainSize() { return chain.size(); }
+    public JSONObject blockAt(int h) { return chain.get(h); }
+    public int mempoolSize() { return mempool.size(); }
+    public boolean mempoolEmpty() { return mempool.isEmpty(); }
+    public int slashedCount() { return slashed.size(); }
+    public String chainId() { return chainId; }
+    public long totalMinted() { return totalMinted; }
+    public long burned() { return burned; }
+    public long blockReward() { return blockReward; }
+    public long maxSupply() { return maxSupply; }
+    public int feeBurnBps() { return feeBurnBps; }
+    public int slashBps() { return slashBps; }
+    public int jailBlocks() { return jailBlocks; }
+    public int halvingBlocks() { return halvingBlocks; }
+    public int unbondingBlocks() { return unbondingBlocks; }
+    public int bridgeThreshold() { return bridgeThreshold; }
+    public long stakeOf(String id) { return stake.getOrDefault(id, 0L); }
+    public long identityCountOf(String id) { return identity.getOrDefault(id, 0L); }
+    public int vouchCountOf(String id) { return vouches.getOrDefault(id, java.util.Collections.<String>emptySet()).size(); }
+    public int validatorCount() { return validators.size(); }
+    public String[] validatorIds() { return validators.toArray(new String[0]); }
+    public int validatorIndex(String id) { return validators.indexOf(id); }
+    public String commitOf(String id) { return commits.get(id); }
+    public String tierOf(String id) { return tiers.get(id); }
+    public JSONObject identityDoc(String id) { return identities.get(id); }
+    public JSONObject proposal(String id) { return proposals.get(id); }
+    public int oracleSources(String pair) { return oracleRates.getOrDefault(pair, java.util.Collections.<String, Long>emptyMap()).size(); }
+    public java.util.Set<String> proposalIds() { return java.util.Collections.unmodifiableSet(proposals.keySet()); }
+    public java.util.Map<String, String> valPubs() { return java.util.Collections.unmodifiableMap(valPubs); }
+    public java.util.List<JSONObject> bridgeOuts() { return java.util.Collections.unmodifiableList(bridgeOuts); }
+
+    /** Genesis-only configuration write: seed opt-in geo regions, storage tiers, bridge custodians,
+     *  and the custodian M-of-N threshold from the genesis spec. The net layer configures the engine
+     *  through this single intentional entry point rather than reaching into the raw collections. */
+    public void applyGenesisProfile(Map<String, String> regionsByVal, Map<String, String> tiersByVal,
+                                    Map<String, String> custodianPubById, int bridgeThreshold) {
+        if (regionsByVal != null) regions.putAll(regionsByVal);
+        if (tiersByVal != null) tiers.putAll(tiersByVal);
+        if (custodianPubById != null) custodians.putAll(custodianPubById);
+        this.bridgeThreshold = bridgeThreshold;
+    }
+
+    /** Consensus write: admit verified equivocation evidence into the mempool, deduped against an
+     *  already-slashed validator and any pending SLASH for it. Returns true if newly enqueued. The
+     *  caller holds the ledger monitor. Moved here from the net layer so the dedup/verify/add is one
+     *  engine-side operation, not a raw mempool.add. */
+    public boolean enqueueSlash(JSONObject slash, Map<String, MLDSAPublicKeyParameters> pubById) throws Exception {
+        String valId = slash.getString("valId");
+        if (slashed.contains(valId)) return false;
+        for (JSONObject t : mempool) if ("SLASH".equals(t.optString("from")) && valId.equals(t.optString("valId"))) return false;
+        if (!verifySlash(slash, pubById)) return false;
+        mempool.add(slash);
+        return true;
+    }
 
     /** Genesis: credit the owner and seal block 0 (coinbase). */
     void genesis(String ownerId, long amount, MLDSAPrivateKeyParameters deviceKey, long ts) throws Exception {
@@ -547,7 +608,7 @@ public class Ledger {
     }
 
     // ===== personhood (social web-of-trust; pluggable -> future biometric admission) =====
-    boolean isVerified(String id) { return verified.contains(id); }
+    public boolean isVerified(String id) { return verified.contains(id); }
 
     /** Admit a candidate to `verified` once it has enough vouches AND has locked the identity bond (Sybil-cost). */
     void tryAdmit(String cand) {

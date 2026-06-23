@@ -1,4 +1,4 @@
-package com.phantomchain.net;
+package com.phantomchain.debug;
 
 import static com.phantomchain.debug.TestKit.*;
 

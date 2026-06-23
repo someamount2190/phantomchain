@@ -80,7 +80,7 @@ def simSuites = ['EconStabilitySim', 'LongRunEconSim', 'LargeScaleSim']
 
 // Tests that boot a NetNode live in the com.phantomchain.net package; the rest are engine
 // tests in com.phantomchain.debug. (Net can only see the engine's public Ledger facade.)
-def netTests = ['AdvAdversaryTest', 'EclipseTest', 'FuzzTest', 'LargeScaleSim', 'MtlsTest', 'ReadPeerSplitTest', 'PartitionTest', 'RpcEndpointTest'] as Set
+def netTests = ['EclipseTest', 'MtlsTest', 'ReadPeerSplitTest', 'RpcEndpointTest'] as Set
 
 def runSuite = { List names ->
     def failures = []

@@ -43,8 +43,32 @@ final class NodeRpc {
         StringBuilder sl = new StringBuilder();
         for (int i = 0; i < n.N; i++) if (n.isSlashed(i)) { if (sl.length() > 0) sl.append(","); sl.append(i); }
         return "node=" + n.index + " height=" + n.ledger.height()
-                + " last=" + n.ledger.lastHash().substring(0, 12) + " mempool=" + n.ledger.mempool.size()
+                + " last=" + n.ledger.lastHash().substring(0, 12) + " mempool=" + n.ledger.mempoolSize()
                 + " peers=" + n.peers.size() + " slashed=[" + sl + "]" + bal;
+    }
+
+    // Read-only report builders typed to LedgerView: the parameter type makes it a compile error for
+    // these handlers to mutate engine state (they can only call the read surface). Output is byte-for-byte
+    // what the inline /econ and /identity handlers produced (covered by RpcEndpointTest).
+    static String econReport(LedgerView v, int count, String[] valIds) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < count; i++) sb.append("node" + i
+                + ": stake=" + v.stakeOf(valIds[i])
+                + " identity=" + v.identityCountOf(valIds[i])
+                + " weight=" + String.format("%.1f%%", 100 * v.weight(i))
+                + " balance=" + v.balanceOf(valIds[i])
+                + (v.excluded(valIds[i]) ? " [SLASHED]" : "") + "\n");
+        sb.append("total_minted=" + v.totalMinted() + " burned=" + v.burned()
+                + " circulating=" + v.circulatingSupply() + " height=" + v.height());
+        return sb.toString();
+    }
+    static String identityReport(LedgerView v, int count, String[] valIds) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < count; i++) sb.append("node" + i
+                + ": verified=" + v.isVerified(valIds[i])
+                + " vouches=" + v.vouchCountOf(valIds[i]) + "/" + Ledger.VOUCH_THRESHOLD
+                + " weight=" + String.format("%.1f%%", 100 * v.weight(i)) + "\n");
+        return sb.toString();
     }
 
     String peersJson() { JSONObject o = new JSONObject(); for (Map.Entry<Integer, String> e : n.peers.entrySet()) o.put(String.valueOf(e.getKey()), e.getValue()); return o.toString(); }
@@ -64,33 +88,15 @@ final class NodeRpc {
                 return newFixedLengthResponse(Response.Status.UNAUTHORIZED, MIME_PLAINTEXT, "operator token required\n");
             switch (uri) {
                 case "/status": synchronized (n.ledger) { return resp(status()); }
-                case "/econ": synchronized (n.ledger) {
-                    StringBuilder sb = new StringBuilder();
-                    for (int i = 0; i < n.N; i++) sb.append("node" + i
-                            + ": stake=" + n.ledger.stake.getOrDefault(n.VAL_IDS[i], 0L)
-                            + " identity=" + n.ledger.identity.getOrDefault(n.VAL_IDS[i], 0L)
-                            + " weight=" + String.format("%.1f%%", 100 * n.ledger.weight(i))
-                            + " balance=" + n.ledger.balanceOf(n.VAL_IDS[i])
-                            + (n.isSlashed(i) ? " [SLASHED]" : "") + "\n");
-                    sb.append("total_minted=" + n.ledger.totalMinted + " burned=" + n.ledger.burned
-                            + " circulating=" + n.ledger.circulatingSupply() + " height=" + n.ledger.height());
-                    return resp(sb.toString());
-                }
-                case "/identity": synchronized (n.ledger) {
-                    StringBuilder sb = new StringBuilder();
-                    for (int i = 0; i < n.N; i++) sb.append("node" + i
-                            + ": verified=" + n.ledger.verified.contains(n.VAL_IDS[i])
-                            + " vouches=" + n.ledger.vouches.getOrDefault(n.VAL_IDS[i], java.util.Collections.<String>emptySet()).size() + "/" + Ledger.VOUCH_THRESHOLD
-                            + " weight=" + String.format("%.1f%%", 100 * n.ledger.weight(i)) + "\n");
-                    return resp(sb.toString());
-                }
+                case "/econ": synchronized (n.ledger) { return resp(econReport(n.ledger, n.N, n.VAL_IDS)); }
+                case "/identity": synchronized (n.ledger) { return resp(identityReport(n.ledger, n.N, n.VAL_IDS)); }
                 case "/vouch": {
                     String ci = param(s, "i");
                     if (ci == null) return resp("need i=<candidate index>");
                     String cand = n.VAL_IDS[Integer.parseInt(ci)];
                     JSONObject tx; String res;
                     synchronized (n.ledger) {
-                        if (!n.ledger.verified.contains(n.id)) return resp("reject: this node is not personhood-verified, cannot vouch");
+                        if (!n.ledger.isVerified(n.id)) return resp("reject: this node is not personhood-verified, cannot vouch");
                         tx = n.ledger.buildVouchTx(n.id, cand, n.key);
                         res = n.ledger.addToMempool(tx, NetNode.PUB_BY_ID);
                     }
@@ -136,22 +142,22 @@ final class NodeRpc {
                 }
                 case "/gov": synchronized (n.ledger) {
                     StringBuilder sb = new StringBuilder();
-                    for (String pid : n.ledger.proposals.keySet()) {
-                        JSONObject p = n.ledger.proposals.get(pid);
+                    for (String pid : n.ledger.proposalIds()) {
+                        JSONObject p = n.ledger.proposal(pid);
                         sb.append(pid + ": " + p.getString("param") + "=" + p.getLong("value")
                                 + " deadline=" + p.getLong("deadline") + " executed=" + p.getBoolean("executed")
                                 + " votes=" + p.getJSONObject("votes").length() + "\n");
                     }
-                    sb.append("params: blockReward=" + n.ledger.blockReward + " halvingBlocks=" + n.ledger.halvingBlocks
-                            + " maxSupply=" + n.ledger.maxSupply + " feeBurnBps=" + n.ledger.feeBurnBps + " slashBps=" + n.ledger.slashBps
-                            + " jailBlocks=" + n.ledger.jailBlocks + " unbondingBlocks=" + n.ledger.unbondingBlocks);
+                    sb.append("params: blockReward=" + n.ledger.blockReward() + " halvingBlocks=" + n.ledger.halvingBlocks()
+                            + " maxSupply=" + n.ledger.maxSupply() + " feeBurnBps=" + n.ledger.feeBurnBps() + " slashBps=" + n.ledger.slashBps()
+                            + " jailBlocks=" + n.ledger.jailBlocks() + " unbondingBlocks=" + n.ledger.unbondingBlocks());
                     return resp(sb.toString());
                 }
-                case "/head": synchronized (n.ledger) { return resp(n.ledger.chain.size() + "|" + n.ledger.lastHash()); }
+                case "/head": synchronized (n.ledger) { return resp(n.ledger.chainSize() + "|" + n.ledger.lastHash()); }
                 case "/account": synchronized (n.ledger) {
                     String aid = param(s, "id"); if (aid == null) return resp("need id=");
                     return resp(new JSONObject().put("id", aid).put("balance", n.ledger.balanceOf(aid))
-                            .put("nonce", n.ledger.projectedNonce(aid)).put("cid", n.ledger.chainId).toString());
+                            .put("nonce", n.ledger.projectedNonce(aid)).put("cid", n.ledger.chainId()).toString());
                 }
                 case "/stateproof": synchronized (n.ledger) {   // authenticated account inclusion proof (Merkle) — verifiable by a light client
                     String aid = param(s, "id"); if (aid == null) return resp("need id=");
@@ -183,26 +189,26 @@ final class NodeRpc {
                     return resp("bridge_out=" + res + " amount=" + amount + " -> " + (chain == null ? "ETH" : chain) + ":" + ext);
                 }
                 case "/bridge/outs": synchronized (n.ledger) {   // outbound locks awaiting external release (for custodians)
-                    JSONArray a = new JSONArray(); for (JSONObject o : n.ledger.bridgeOuts) a.put(o); return resp(a.toString());
+                    JSONArray a = new JSONArray(); for (JSONObject o : n.ledger.bridgeOuts()) a.put(o); return resp(a.toString());
                 }
                 case "/oracle": synchronized (n.ledger) {
                     String pair = param(s, "pair"); if (pair == null) return resp("need pair=");
                     return resp(new JSONObject().put("pair", pair).put("median", n.ledger.oracleMedian(pair))
-                            .put("sources", n.ledger.oracleRates.getOrDefault(pair, java.util.Collections.<String, Long>emptyMap()).size()).toString());
+                            .put("sources", n.ledger.oracleSources(pair)).toString());
                 }
                 case "/identity-info": synchronized (n.ledger) {
                     String aid = param(s, "id"); if (aid == null) return resp("need id=");
-                    JSONObject idn = n.ledger.identities.get(aid);
+                    JSONObject idn = n.ledger.identityDoc(aid);
                     return resp(idn == null ? new JSONObject().put("registered", false).toString() : idn.toString());
                 }
                 case "/body": {   // leaf: full body if we still hold it, else pruned
                     int h = Integer.parseInt(param(s, "h"));
-                    synchronized (n.ledger) { return resp(n.ledger.hasBody(h) ? n.ledger.chain.get(h).toString() : "pruned"); }
+                    synchronized (n.ledger) { return resp(n.ledger.hasBody(h) ? n.ledger.blockAt(h).toString() : "pruned"); }
                 }
                 case "/rsshard": synchronized (n.ledger) {   // this node's RS shard of block h (stored, or computed if we hold the body)
                     int h = Integer.parseInt(param(s, "h"));
-                    if (h < 0 || h >= n.ledger.chain.size()) return resp("{}");
-                    JSONObject b = n.ledger.chain.get(h);
+                    if (h < 0 || h >= n.ledger.chainSize()) return resp("{}");
+                    JSONObject b = n.ledger.blockAt(h);
                     if (b.has("rsShard")) return resp(new JSONObject().put("idx", b.getInt("rsIdx")).put("shard", b.getString("rsShard")).toString());
                     if (n.ledger.hasBody(h)) {
                         byte[] body = b.getJSONArray("txs").toString().getBytes(StandardCharsets.UTF_8);
@@ -215,9 +221,9 @@ final class NodeRpc {
                     int h = Integer.parseInt(param(s, "h"));
                     JSONObject header;
                     synchronized (n.ledger) {
-                        if (h < 0 || h >= n.ledger.chain.size()) return resp(new JSONObject().put("error", "no height").toString());
-                        if (n.ledger.hasBody(h)) return resp(n.ledger.chain.get(h).toString());
-                        header = n.ledger.chain.get(h);
+                        if (h < 0 || h >= n.ledger.chainSize()) return resp(new JSONObject().put("error", "no height").toString());
+                        if (n.ledger.hasBody(h)) return resp(n.ledger.blockAt(h).toString());
+                        header = n.ledger.blockAt(h);
                     }
                     byte[][] shards = new byte[NetNode.RS_N][]; boolean[] present = new boolean[NetNode.RS_N]; int got = 0, slen = 0;
                     if (header.has("rsShard")) { int idx = header.getInt("rsIdx"); byte[] sh = PhantomCrypto.unhex(header.getString("rsShard")); shards[idx] = sh; present[idx] = true; got++; slen = sh.length; }
@@ -300,13 +306,12 @@ final class NodeRpc {
                 case "/gossip/vote": { String b = body(s); if (b == null) return resp("no body"); n.handleIncomingVote(new JSONObject(b)); return resp("ok"); }
                 case "/gossip/slash": {
                     String b = body(s); if (b == null) return resp("no body");
-                    JSONObject slash = new JSONObject(b);
-                    if (Ledger.verifySlash(slash, NetNode.PUB_BY_ID)) n.queueSlash(slash);
+                    n.queueSlash(new JSONObject(b));   // engine verifies the evidence + dedups before admitting
                     return resp("ok");
                 }
                 case "/byz/equivocate": {   // DEBUG-only adversary hook; disabled unless PC_DEBUG=1
                     if (!NetNode.DEBUG_ENDPOINTS) return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "no route\n");
-                    int h; synchronized (n.ledger) { h = n.ledger.chain.size(); }
+                    int h; synchronized (n.ledger) { h = n.ledger.chainSize(); }
                     String ha = PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8("equivA|" + h)));
                     String hb = PhantomCrypto.hex(PhantomCrypto.sha3_256(PhantomCrypto.utf8("equivB|" + h)));
                     JSONObject vA = new JSONObject().put("valId", n.id).put("height", h).put("hash", ha).put("sig", PhantomCrypto.hex(n.voteSig(ha)));

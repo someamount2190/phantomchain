@@ -108,16 +108,16 @@ public class NetNode extends NanoHTTPD {
     /** Rebuild the local validator view from committed ledger state (append-only set + joined pubkeys),
      *  and promote ourselves from observer to validator once our VALJOIN has committed. */
     synchronized void syncValidatorSet() {
-        int vn = ledger.validators.size();
+        int vn = ledger.validatorCount();
         if (vn != N) {
             N = vn;
-            VAL_IDS = ledger.validators.toArray(new String[0]);
-            for (Map.Entry<String, String> e : ledger.valPubs.entrySet())
+            VAL_IDS = ledger.validatorIds();
+            for (Map.Entry<String, String> e : ledger.valPubs().entrySet())
                 if (!"CLUSTER".equals(e.getValue()))   // a cluster has no single key; its consensus sig is an M-of-N member bundle (verifyClusterVote)
                     PUB_BY_ID.computeIfAbsent(e.getKey(), kk -> PhantomCrypto.pubKey(e.getValue()));
         }
         if (index < 0) {
-            int myIdx = ledger.validators.indexOf(id);
+            int myIdx = ledger.validatorIndex(id);
             if (myIdx >= 0) { index = myIdx; peers.put(index, selfAddr);
                 System.out.println("node " + id.substring(0, 8) + "... JOINED validator set at index " + myIdx); }
         }
@@ -126,7 +126,7 @@ public class NetNode extends NanoHTTPD {
     void boot() throws Exception {
         if (dataFile.exists()) {
             ledger.fromJson(new String(Files.readAllBytes(dataFile.toPath()), StandardCharsets.UTF_8));
-            System.out.println("node" + index + " loaded chain height=" + ledger.height() + " slashed=" + ledger.slashed.size());
+            System.out.println("node" + index + " loaded chain height=" + ledger.height() + " slashed=" + ledger.slashedCount());
         } else {
             java.util.List<String> vals = new java.util.ArrayList<>();
             LinkedHashMap<String, Long> alloc = new LinkedHashMap<>();
@@ -142,12 +142,13 @@ public class NetNode extends NanoHTTPD {
             Map<String, String> beaconCommits = new HashMap<>();
             for (Genesis.Validator v : GEN.validators) if (!v.beaconCommit0.isEmpty()) beaconCommits.put(v.id, v.beaconCommit0);
             ledger.genesisEcon(GEN.chainId, alloc, vals, stk, idn, seedVerified, GEN_VALPUBS, beaconCommits, GEN.genesisTime);
+            Map<String, String> regions = new HashMap<>(), tiers = new HashMap<>(), custodians = new HashMap<>();
             for (Genesis.Validator v : GEN.validators) {
-                if (!v.region.isEmpty()) ledger.regions.put(v.id, v.region);   // opt-in geo regions
-                if (!v.tier.isEmpty()) ledger.tiers.put(v.id, v.tier);         // heavy/light storage tier
+                if (!v.region.isEmpty()) regions.put(v.id, v.region);   // opt-in geo regions
+                if (!v.tier.isEmpty()) tiers.put(v.id, v.tier);         // heavy/light storage tier
             }
-            for (String cp : GEN.custodianPubs) ledger.custodians.put(Ledger.idOf(cp), cp);   // bridge custodians (M-of-N)
-            ledger.bridgeThreshold = GEN.bridgeThreshold;
+            for (String cp : GEN.custodianPubs) custodians.put(Ledger.idOf(cp), cp);   // bridge custodians (M-of-N)
+            ledger.applyGenesisProfile(regions, tiers, custodians, GEN.bridgeThreshold);
             save();
             System.out.println("node" + index + " genesis chainId=" + GEN.chainId + " validators=" + N);
         }
@@ -155,7 +156,7 @@ public class NetNode extends NanoHTTPD {
         syncValidatorSet();   // pick up any validators joined since genesis (and our own index if we joined)
         // commit-reveal beacon: secret seed is DERIVED from our ML-DSA key (so commit0 is publishable at
         // keygen and bound at genesis/VALJOIN — no unconstrained first reveal), then resync our counter.
-        String onchainCommit = ledger.commits.get(id);
+        String onchainCommit = ledger.commitOf(id);
         if (onchainCommit != null) for (long c = Math.max(0, beaconCtr - 3); c <= beaconCtr + 3; c++)
             if (PhantomCrypto.hex(PhantomCrypto.sha3_256(beaconSecret(c))).equals(onchainCommit)) { beaconCtr = c; break; }
         // TLS 1.3 transport: the per-cluster CA + node certs are minted by the genesis ceremony and
@@ -245,18 +246,18 @@ public class NetNode extends NanoHTTPD {
     // ---- ledger-history sharding: each node keeps only its assigned archived block bodies ----
     static final int RS_K = 2, RS_N = 4;   // erasure code: any RS_K of RS_N shards reconstruct a body
     static final ReedSolomon RS = new ReedSolomon(RS_K, RS_N);
-    boolean isLight() { return "light".equals(ledger.tiers.get(id)); }
+    boolean isLight() { return "light".equals(ledger.tierOf(id)); }
     int myShardIdx() { return (index < 0 ? 0 : index) % RS_N; }
     /** Drop full archived bodies, retaining only THIS node's RS shard (~1/k size). Light tier keeps nothing. */
     void pruneArchived() throws Exception {
-        int upTo = ledger.chain.size() - Ledger.RETAIN_RECENT;
+        int upTo = ledger.chainSize() - Ledger.RETAIN_RECENT;
         boolean changed = false;
         synchronized (ledger) {
             for (int h = 1; h < upTo; h++) {
                 if (!ledger.hasBody(h)) continue;
                 if (isLight()) { ledger.pruneBlock(h); changed = true; continue; }
                 try {
-                    byte[] body = ledger.chain.get(h).getJSONArray("txs").toString().getBytes(StandardCharsets.UTF_8);
+                    byte[] body = ledger.blockAt(h).getJSONArray("txs").toString().getBytes(StandardCharsets.UTF_8);
                     byte[][] shards = RS.encode(ReedSolomon.split(body, RS_K));
                     int mine = myShardIdx();
                     ledger.pruneBlockRS(h, mine, shards[mine]);
@@ -345,12 +346,7 @@ public class NetNode extends NanoHTTPD {
 
     void queueSlash(JSONObject slash) {
         try {
-            String valId = slash.getString("valId");
-            synchronized (ledger) {
-                if (ledger.slashed.contains(valId)) return;
-                for (JSONObject t : ledger.mempool) if ("SLASH".equals(t.optString("from")) && valId.equals(t.optString("valId"))) return;
-                if (Ledger.verifySlash(slash, PUB_BY_ID)) ledger.mempool.add(slash);
-            }
+            synchronized (ledger) { ledger.enqueueSlash(slash, PUB_BY_ID); }   // engine dedups vs slashed/pending + verifies before admitting
         } catch (Exception e) { System.err.println("queueSlash: failed to enqueue slash evidence: " + e); }
     }
 
@@ -377,7 +373,7 @@ public class NetNode extends NanoHTTPD {
                 String head = httpGet(addr, "/head"); if (head == null) continue;
                 int peerSize = Integer.parseInt(head.trim().split("\\|")[0]);
                 while (true) {
-                    int want; synchronized (ledger) { want = ledger.chain.size(); }
+                    int want; synchronized (ledger) { want = ledger.chainSize(); }
                     if (want >= peerSize) break;
                     String bj = httpGet(addr, "/block?h=" + want); if (bj == null) break;
                     JSONObject blk = new JSONObject(bj.trim());

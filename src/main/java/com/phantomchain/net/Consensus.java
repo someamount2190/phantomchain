@@ -28,7 +28,7 @@ final class Consensus {
             try { Thread.sleep(NetNode.TICK); } catch (InterruptedException e) { return; }
             n.syncValidatorSet();   // refresh validator set / promote self after a VALJOIN commits
             int h; boolean hasWork;
-            synchronized (n.ledger) { h = n.ledger.chain.size(); hasWork = !n.ledger.mempool.isEmpty(); }
+            synchronized (n.ledger) { h = n.ledger.chainSize(); hasWork = !n.ledger.mempoolEmpty(); }
             if (!hasWork) { workHeight = -1; lastKey = null; continue; }
             long now = System.currentTimeMillis();
             if (workHeight != h) { workHeight = h; workStart = now; lastKey = null; }
@@ -46,7 +46,7 @@ final class Consensus {
     void round(int h, int view) throws Exception {
         JSONObject blk; String hash;
         synchronized (n.ledger) {
-            if (n.ledger.chain.size() != h || n.ledger.mempool.isEmpty()) return;
+            if (n.ledger.chainSize() != h || n.ledger.mempoolEmpty()) return;
             blk = n.ledger.buildProposal(n.index, System.currentTimeMillis());
             blk.put("view", view);
             blk.put("reveal", n.beaconReveal()).put("commit", n.beaconCommit());   // RANDAO: reveal prior secret, commit next
@@ -71,7 +71,7 @@ final class Consensus {
         blk.put("qc", qc);
         boolean committed = false;
         synchronized (n.ledger) {
-            if (n.ledger.chain.size() != h) return;
+            if (n.ledger.chainSize() != h) return;
             if (!n.verifyQC(blk)) return;
             n.seenBlock.add(hash);
             if ("appended".equals(n.ledger.commitBlock(blk, n.PUB_BY_ID))) { n.save(); committed = true; n.beaconCtr++; n.saveVotes(); }

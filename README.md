@@ -61,3 +61,11 @@ CI (`.github/workflows/ci.yml`) runs the same on every push/PR. The networked cl
 1.3, peer discovery, view-change, crash recovery, slashing) and the Android debug app are both
 reproducible — full steps, endpoint reference, and gotchas are in [`docs/BUILD.md`](docs/BUILD.md).
 Decomposition plan for the `Ledger` monolith: [`docs/REFACTOR.md`](docs/REFACTOR.md).
+
+## License
+
+Licensed under the **Apache License, Version 2.0** — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
+The patent grant is deliberate: Apache 2.0 gives every user an explicit, irrevocable patent license to
+the post-quantum cryptography and consensus implemented here (and terminates it for anyone who brings a
+patent suit over the Work) — protection a permissive license without a patent clause (e.g. MIT) does not
+provide.

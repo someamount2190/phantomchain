@@ -2,9 +2,27 @@
 
 [![CI](https://github.com/someamount2190/phantomchain/actions/workflows/ci.yml/badge.svg)](https://github.com/someamount2190/phantomchain/actions/workflows/ci.yml)
 
-A post-quantum **PoS-BFT blockchain** with a self-custodial Android wallet. All cryptography uses
-standardized post-quantum primitives via BouncyCastle — no classical ECDSA/RSA in the consensus or
-identity path, and no hand-rolled crypto.
+A **research implementation** of a post-quantum PoS-BFT blockchain — a from-scratch, working reference
+for quantum-safe consensus and recoverable on-chain identity, running as a live 4-validator testnet.
+It is **not** a product and has no token; it exists to explore the design and to be read.
+
+All cryptography uses standardized post-quantum primitives via BouncyCastle (ML-DSA-65, ML-KEM-1024) —
+no classical ECDSA/RSA in the consensus or identity path, and no hand-rolled crypto.
+
+## Two ideas worth taking
+
+The chain as a whole is a learning exercise, but two pieces stand on their own and are the most
+portable part of this work:
+
+- **Recoverable post-quantum identity** — identities are decoupled from keys (*identity ≠ key*): a
+  durable on-chain identity with rotatable device keys, instant on-chain revocation, **M-of-N guardian
+  recovery** of a lost device, and inactivity-triggered **estate / inheritance**. It attacks the single
+  worst UX failure in crypto — *lost key means lost funds* — at the protocol layer, and it's
+  post-quantum. Spec: [`docs/phantomchain-identity-keys-recovery-v0.3.md`](docs/phantomchain-identity-keys-recovery-v0.3.md).
+- **PQ-native consensus signatures** — the post-quantum signatures sit in the **quorum certificates
+  themselves**, not only in user transactions. That is the one property an incumbent chain cannot
+  cheaply retrofit — it would have to hard-fork and re-stake its entire validator set. The interesting
+  engineering is making ML-DSA's ~3.3 KB signatures workable inside a QC.
 
 ## Architecture
 
@@ -36,9 +54,35 @@ same class the Android app embeds). `NetNode` drives consensus but never mutates
   heavy/light tiers, geo-coverage premium, dynamic `VALJOIN` membership.
 - **Cross-chain bridge** — on-chain custodian M-of-N core + off-chain custodian daemon.
 
-For the honest status of each layer — including the explicitly **interim** and **research-gated**
-items (proof-of-personhood, threshold ML-DSA, PUF attestation) — see
-[`docs/FRONTIER.md`](docs/FRONTIER.md).
+## Status & limits
+
+This is research, reported honestly. The full, current map — what is **built and verified**, what is
+**interim**, and what is a **research frontier** — lives in [`docs/FRONTIER.md`](docs/FRONTIER.md). The
+short version:
+
+- **Live:** `phantomchain-testnet-2`, 4 BFT validators on `188.166.224.212:9090-9093` (read endpoints
+  open; writes operator-token gated). Core safety (BFT-correct quorum `N−(N−1)/3`, per-block state root,
+  chainId domain separation in every signed payload), the identity/rotation/guardian-recovery/inheritance
+  layer, staking/slashing/timelocked governance, and dynamic validator `VALJOIN` are all built and verified.
+- **The honest caveat:** the BFT consensus is **bespoke** — which is exactly where chains lose funds. A
+  real liveness-wedge bug (votes persisted before commit could deadlock a height across restart) was found
+  and fixed; the durable lesson is that safety-critical consensus wants a vetted engine, not a hand-roll
+  ([`docs/CONSENSUS-VIEWCHANGE.md`](docs/CONSENSUS-VIEWCHANGE.md)).
+- **Research-gated / not claimed:** proof-of-personhood, threshold ML-DSA, PUF attestation — named as
+  frontiers, not shipped.
+- **Security is by design and review, not economics.** A testnet has no real stake securing it; nothing
+  here should be read as production-ready or as an invitation to put value on it.
+
+## What I learned / would do differently
+
+- **Hand-rolling BFT was the highest-risk decision.** It worked and it taught the internals, but the
+  liveness wedge is the receipt: next time the safety-critical core gets a vetted/formally-verified engine,
+  and the novelty goes everywhere else.
+- **Post-quantum reshapes the data plane, not just the threat model.** ML-DSA-65 signatures (~3.3 KB vs
+  64 bytes for Ed25519) and ML-KEM ciphertexts change quorum-certificate design, block size, and storage
+  economics. PQ is a permanent byte tax you design around, not a flag you flip.
+- **Identity ≠ key was the idea that paid off.** Guardian recovery and inheritance solve a problem people
+  have *today*, independent of the quantum thesis — and they're the part of this work most worth reusing.
 
 ## Design specs
 
